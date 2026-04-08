@@ -7,5 +7,7 @@ namespace fast {
         public:
 
         Engine(int width, int height);
+
+        void run();
     };
 }
