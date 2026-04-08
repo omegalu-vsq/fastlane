@@ -10,10 +10,10 @@ namespace fast {
     {}
 
     static uint32_t packRGBA(const Color& c) {
-    return (uint32_t(c.r) << 24) |
-           (uint32_t(c.g) << 16) |
-           (uint32_t(c.b) << 8)  |
-           0xFFu;
+        return (uint32_t(c.r) << 24) |
+            (uint32_t(c.g) << 16) |
+            (uint32_t(c.b) << 8)  |
+            0xFFu;
     }
 
     void Engine::run() {
