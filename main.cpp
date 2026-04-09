@@ -3,7 +3,7 @@
 #include <iostream>
 
 int main() {
-    fast::Engine engine{320, 200};
+    fast::Engine engine{1280, 720};
 
     engine.run();
 
