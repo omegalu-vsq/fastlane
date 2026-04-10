@@ -8,6 +8,9 @@ namespace fast {
 
         Engine(int width, int height);
 
-        void run();
+        // Calculation methods
+        void basic();
+        void projection();
+        void power2(); // 0/20
     };
 }

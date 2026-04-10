@@ -5,7 +5,7 @@
 int main() {
     fast::Engine engine{1280, 720};
 
-    engine.run();
+    engine.projection();
 
     return 0;
 }
