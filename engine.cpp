@@ -26,6 +26,10 @@ namespace fast {
             return static_cast<int>(std::floor(static_cast<double>(v) / static_cast<double>(w)));
         }
 
+        int div_tile_f(float v, float w) {
+            return static_cast<int>(std::floor(v / w));
+        }
+
         void drawSkyParallax(
             Video& video,
             int horizon_y,
@@ -40,14 +44,14 @@ namespace fast {
                 float depth = static_cast<float>(y) / denom;
                 Color base = lerpColor(sky_top, sky_mid, depth);
 
-                const int shift_far = static_cast<int>(turn * 88.f * depth);
-                const int shift_near = static_cast<int>(turn * 28.f * depth);
+                const float shift_far = turn * 88.f * depth;
+                const float shift_near = turn * 28.f * depth;
 
                 for (int x = 0; x < video.width_; ++x) {
-                    int xf = x - shift_far;
-                    int xn = x - shift_near;
-                    int band_a = div_tile(xf, 22) ^ div_tile(y, 6);
-                    int band_b = div_tile(xn, 35) ^ div_tile(y, 9);
+                    float xf = static_cast<float>(x) - shift_far;
+                    float xn = static_cast<float>(x) - shift_near;
+                    int band_a = div_tile_f(xf, 22.f) ^ div_tile(y, 6);
+                    int band_b = div_tile_f(xn, 35.f) ^ div_tile(y, 9);
                     bool cloud_pixel = ((band_a + band_b) & 1) != 0;
 
                     Color out = base;
@@ -59,7 +63,7 @@ namespace fast {
             }
         }
 
-    } // namespace
+    }
     Engine::Engine(int width, int height) : video_(width, height) 
     {}
 
@@ -140,12 +144,12 @@ namespace fast {
         float strip_size = 256;
         float speed = 500.;
         float dt = 0.016f;
+        const float curve_tau = 0.12f;
 
         const int horizon_y = video_.height_ / 2 + 1 + (video_.height_ / 16);
 
         float roadPos = 0;
         float road_curve = 0.f;
-        float time_s = 0.f;
 
         float roadWidth = 0.9f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
@@ -183,9 +187,9 @@ namespace fast {
                 curve_input += 1.f;
             }
 
-            time_s += dt;
-            float demo_curve = 0.42f * std::sin(time_s * 0.55f);
-            road_curve = std::clamp(demo_curve + curve_input * 0.55f, -1.f, 1.f);
+            float curve_target = std::clamp(curve_input * 0.55f, -1.f, 1.f);
+            float blend = 1.f - std::exp(-dt / curve_tau);
+            road_curve += (curve_target - road_curve) * blend;
 
             drawSkyParallax(video_, horizon_y, road_curve);
 
