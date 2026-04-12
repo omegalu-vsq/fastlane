@@ -3,7 +3,7 @@
 #include <iostream>
 
 int main() {
-    fast::Engine engine{1280, 720};
+    fast::Engine engine{320, 240};
 
     engine.projection();
 

@@ -32,6 +32,7 @@ namespace fast {
         inline const Color JADE{75, 192, 173};
         inline const Color JADE2{72, 143, 131};
         inline const Color DARK_BLUE{0, 79, 163};
+        inline const Color GRAY{69, 69, 61};
     }
 
     class Image {

@@ -88,13 +88,29 @@ namespace fast {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
         // PARAMETERS
-        int distance = 512; // between camera & screen
-        int cam_height = video_.height_ / 2; // between ground & camera
-        int strip_size = 256;
-        float speed = 100.;
-        float dt = 0.016;
+        float distance = 512; // between camera & screen
+        float cam_height = (video_.height_ / 2); // between ground & camera
+        float strip_size = 256;
+        float speed = 500.;
+        float dt = 0.016f;
 
         float roadPos = 0;
+
+        float roadWidth = 0.9f;
+        // float roadLeft = (1.0f - roadWidth) / 2.0f;
+        // float roadRight = roadLeft + roadWidth;
+        float roadLeft = 0.5f - (roadWidth / 2.0f);
+        float roadRight = 0.5f + (roadWidth / 2.0f);
+        float zref = distance;
+
+        Color road_pattern[][9] = {
+            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+        };
 
         // ENGINE LOOP
         bool running = true;
@@ -107,16 +123,33 @@ namespace fast {
                 }
             }
 
-            for (int y = video_.height_ / 2 + 1; y < video_.height_; y++) {
-                int z = (cam_height * distance) / (y - (video_.height_ / 2));
+            for (int y = video_.height_ / 2 + 1 + (video_.height_ / 16); y < video_.height_; y++) {
+                float z = (cam_height * distance) / (y - (video_.height_ / 2));
 
-                int texture_position = (z + static_cast<int>(std::round(roadPos))) % strip_size;
+                float texture_position = std::fmod(z + roadPos, strip_size);
+                float texture_normalized = texture_position / strip_size;
+
+                int road_idx_vertical = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern)) * texture_normalized));
+
+                float roadLeftProj = 0.5f + (((roadLeft - 0.5f) * zref) / z);
+                float roadRightProj = 0.5f + (((roadRight - 0.5f) * zref) / z);
 
                 for (int x = 0; x < video_.width_; ++x) {
-                    if (texture_position < strip_size / 2)
+                    float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_);
+
+                    if (texture_position < strip_size / 2.)
                         video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE;
                     else
                         video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE2;
+
+                    if (roadLeftProj <= x_prop && x_prop <= roadRightProj) {
+                        float x_prop_born = (x_prop - roadLeftProj) / (roadRightProj - roadLeftProj);
+
+                        int road_idx_horizon = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern[0])) * x_prop_born));
+
+                        video_.buffer_.pixels[x + y * video_.width_] = road_pattern[road_idx_vertical][road_idx_horizon];
+                    }
+
                 }
             }
 
@@ -136,7 +169,7 @@ namespace fast {
             SDL_RenderClear(video_.renderer_);
             SDL_RenderCopy(video_.renderer_, video_.texture_, nullptr, nullptr);
             SDL_RenderPresent(video_.renderer_);
-            SDL_Delay(dt * 100.);
+            SDL_Delay(dt * 100.0f);
         }
     }
 
