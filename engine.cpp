@@ -1,4 +1,5 @@
 #include "engine.hh"
+#include "texture.hh"
 
 #include <cmath>
 #include <cstdint>
@@ -91,7 +92,7 @@ namespace fast {
         // PARAMETERS
         float distance = 512; // between camera & screen
         float cam_height = (video_.height_ / 2); // between ground & camera
-        float strip_size = 256;
+        float strip_size = 512;
         float speed = 500.0f;
         float dt = 0.016f;
 
@@ -104,17 +105,22 @@ namespace fast {
         float roadRight = 0.5f + (roadWidth / 2.0f);
         float zref = distance;
 
-        Color road_pattern[6][9] = {
-            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-            {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-            {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-        };
+        // Color road_pattern[6][9] = {
+        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
+        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
+        // };
 
-        int pattern_height = sizeof(road_pattern) / sizeof(road_pattern[0]);
-        int pattern_width = sizeof(road_pattern[0]) / sizeof(Color);
+        Texture road_pattern = Texture::load("textures/rom.ppm");
+        road_pattern.flip_vertical();
+        int pattern_height = road_pattern.height_;
+        int pattern_width = road_pattern.width_;
+
+        // int pattern_height = sizeof(road_pattern) / sizeof(road_pattern[0]);
+        // int pattern_width = sizeof(road_pattern[0]) / sizeof(Color);
         //std::cout << static_cast<float>(sizeof(road_pattern) / sizeof(road_pattern[0])) << std::endl;
         //std::cout << static_cast<float>(sizeof(road_pattern[0]) / sizeof(Color)) << std::endl;
         
@@ -125,8 +131,13 @@ namespace fast {
             SDL_Event event;
             
             while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
+                if (event.type == SDL_QUIT)
                     running = false;
+                else if (event.type == SDL_KEYDOWN) {
+                    if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS)
+                        speed += 100.0f;
+                    else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS)
+                        speed -= 100.0f;
                 }
             }
 
@@ -164,7 +175,7 @@ namespace fast {
 
                         //std::cout << '[' << road_idx_vertical << "][" << road_idx_horizon << ']' << std::endl;
 
-                        video_.buffer_.pixels[x + y * video_.width_] = road_pattern[road_idx_vertical][road_idx_horizon];
+                        video_.buffer_.pixels[x + y * video_.width_] = road_pattern.get(road_idx_horizon, road_idx_vertical);
                     }
 
                 }

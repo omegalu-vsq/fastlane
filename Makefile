@@ -1,7 +1,7 @@
 CC = g++
 
-CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp
-H_FILES  = video.hh point.hh vector.hh engine.hh
+CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp
+H_FILES  = video.hh point.hh vector.hh engine.hh texture.hh
 
 OBJ_FILES = $(CPP_FILES:.cpp=.o)
 
