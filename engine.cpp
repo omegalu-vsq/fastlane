@@ -1,13 +1,65 @@
 #include "engine.hh"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
 
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_events.h>
+#include <SDL2/SDL_keyboard.h>
 
 namespace fast {
+
+    namespace {
+
+        Color lerpColor(const Color& a, const Color& b, float t) {
+            t = std::clamp(t, 0.f, 1.f);
+            return Color{
+                static_cast<uint8_t>(a.r + (b.r - a.r) * t),
+                static_cast<uint8_t>(a.g + (b.g - a.g) * t),
+                static_cast<uint8_t>(a.b + (b.b - a.b) * t),
+            };
+        }
+
+        int div_tile(int v, int w) {
+            return static_cast<int>(std::floor(static_cast<double>(v) / static_cast<double>(w)));
+        }
+
+        void drawSkyParallax(
+            Video& video,
+            int horizon_y,
+            float turn
+        ) {
+            const Color sky_top = Colors::DARK_BLUE;
+            const Color sky_mid{18, 105, 195};
+            const Color cloud{120, 170, 220};
+            const float denom = static_cast<float>(std::max(1, horizon_y - 1));
+
+            for (int y = 0; y < horizon_y; ++y) {
+                float depth = static_cast<float>(y) / denom;
+                Color base = lerpColor(sky_top, sky_mid, depth);
+
+                const int shift_far = static_cast<int>(turn * 88.f * depth);
+                const int shift_near = static_cast<int>(turn * 28.f * depth);
+
+                for (int x = 0; x < video.width_; ++x) {
+                    int xf = x - shift_far;
+                    int xn = x - shift_near;
+                    int band_a = div_tile(xf, 22) ^ div_tile(y, 6);
+                    int band_b = div_tile(xn, 35) ^ div_tile(y, 9);
+                    bool cloud_pixel = ((band_a + band_b) & 1) != 0;
+
+                    Color out = base;
+                    if (cloud_pixel && depth > 0.12f) {
+                        out = lerpColor(base, cloud, 0.35f + 0.25f * depth);
+                    }
+                    video.buffer_.pixels[x + y * video.width_] = out;
+                }
+            }
+        }
+
+    } // namespace
     Engine::Engine(int width, int height) : video_(width, height) 
     {}
 
@@ -80,11 +132,6 @@ namespace fast {
     }
 
     void Engine::projection() {
-        for (int y = 0; y < video_.height_; ++y) {
-            for (int x = 0; x < video_.width_; ++x)
-                    video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
-        }
-
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
         // PARAMETERS
@@ -94,7 +141,11 @@ namespace fast {
         float speed = 500.;
         float dt = 0.016f;
 
+        const int horizon_y = video_.height_ / 2 + 1 + (video_.height_ / 16);
+
         float roadPos = 0;
+        float road_curve = 0.f;
+        float time_s = 0.f;
 
         float roadWidth = 0.9f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
@@ -123,7 +174,22 @@ namespace fast {
                 }
             }
 
-            for (int y = video_.height_ / 2 + 1 + (video_.height_ / 16); y < video_.height_; y++) {
+            const Uint8* keys = SDL_GetKeyboardState(nullptr);
+            float curve_input = 0.f;
+            if (keys[SDL_SCANCODE_LEFT]) {
+                curve_input -= 1.f;
+            }
+            if (keys[SDL_SCANCODE_RIGHT]) {
+                curve_input += 1.f;
+            }
+
+            time_s += dt;
+            float demo_curve = 0.42f * std::sin(time_s * 0.55f);
+            road_curve = std::clamp(demo_curve + curve_input * 0.55f, -1.f, 1.f);
+
+            drawSkyParallax(video_, horizon_y, road_curve);
+
+            for (int y = horizon_y; y < video_.height_; y++) {
                 float z = (cam_height * distance) / (y - (video_.height_ / 2));
 
                 float texture_position = std::fmod(z + roadPos, strip_size);
@@ -131,8 +197,9 @@ namespace fast {
 
                 int road_idx_vertical = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern)) * texture_normalized));
 
-                float roadLeftProj = 0.5f + (((roadLeft - 0.5f) * zref) / z);
-                float roadRightProj = 0.5f + (((roadRight - 0.5f) * zref) / z);
+                float lateral = road_curve * 0.22f * (zref / z);
+                float roadLeftProj = 0.5f + lateral + (((roadLeft - 0.5f) * zref) / z);
+                float roadRightProj = 0.5f + lateral + (((roadRight - 0.5f) * zref) / z);
 
                 for (int x = 0; x < video_.width_; ++x) {
                     float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_);

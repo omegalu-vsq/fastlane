@@ -1,4 +1,4 @@
-CC = g++
+CC = g++-10
 
 CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp
 H_FILES  = video.hh point.hh vector.hh engine.hh
