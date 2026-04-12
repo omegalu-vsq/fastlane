@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <iostream>
 #include <vector>
 
 #include <SDL2/SDL_timer.h>
@@ -91,19 +92,19 @@ namespace fast {
         float distance = 512; // between camera & screen
         float cam_height = (video_.height_ / 2); // between ground & camera
         float strip_size = 256;
-        float speed = 500.;
+        float speed = 500.0f;
         float dt = 0.016f;
 
         float roadPos = 0;
 
-        float roadWidth = 0.9f;
+        float roadWidth = 1.5f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
         // float roadRight = roadLeft + roadWidth;
         float roadLeft = 0.5f - (roadWidth / 2.0f);
         float roadRight = 0.5f + (roadWidth / 2.0f);
         float zref = distance;
 
-        Color road_pattern[][9] = {
+        Color road_pattern[6][9] = {
             {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
             {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
             {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
@@ -111,6 +112,12 @@ namespace fast {
             {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
             {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
         };
+
+        int pattern_height = sizeof(road_pattern) / sizeof(road_pattern[0]);
+        int pattern_width = sizeof(road_pattern[0]) / sizeof(Color);
+        //std::cout << static_cast<float>(sizeof(road_pattern) / sizeof(road_pattern[0])) << std::endl;
+        //std::cout << static_cast<float>(sizeof(road_pattern[0]) / sizeof(Color)) << std::endl;
+        
 
         // ENGINE LOOP
         bool running = true;
@@ -129,13 +136,19 @@ namespace fast {
                 float texture_position = std::fmod(z + roadPos, strip_size);
                 float texture_normalized = texture_position / strip_size;
 
-                int road_idx_vertical = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern)) * texture_normalized));
+                //std::cout << texture_normalized << std::endl;
+
+                int road_idx_vertical = static_cast<int>(static_cast<float>(pattern_height) * texture_normalized);
+                if (road_idx_vertical >= pattern_height)
+                    road_idx_vertical--;
+
+                //std::cout << road_idx_vertical << std::endl;
 
                 float roadLeftProj = 0.5f + (((roadLeft - 0.5f) * zref) / z);
                 float roadRightProj = 0.5f + (((roadRight - 0.5f) * zref) / z);
 
                 for (int x = 0; x < video_.width_; ++x) {
-                    float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_);
+                    float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
 
                     if (texture_position < strip_size / 2.)
                         video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE;
@@ -145,7 +158,11 @@ namespace fast {
                     if (roadLeftProj <= x_prop && x_prop <= roadRightProj) {
                         float x_prop_born = (x_prop - roadLeftProj) / (roadRightProj - roadLeftProj);
 
-                        int road_idx_horizon = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern[0])) * x_prop_born));
+                        int road_idx_horizon = static_cast<int>(static_cast<float>(pattern_width) * x_prop_born);
+                        if (road_idx_horizon >= pattern_width)
+                            road_idx_horizon--;
+
+                        //std::cout << '[' << road_idx_vertical << "][" << road_idx_horizon << ']' << std::endl;
 
                         video_.buffer_.pixels[x + y * video_.width_] = road_pattern[road_idx_vertical][road_idx_horizon];
                     }
