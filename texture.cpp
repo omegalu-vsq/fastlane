@@ -29,6 +29,22 @@ namespace fast {
         }
     }
 
+    SpriteSlot get_sprite_from_char(char c) {
+        SpriteSlot slot;
+        switch (std::toupper(c)) {
+            case 'R':
+                slot.active = true;
+                slot.sprite_ = Sprite("textures/rom.ppm", 0.1f);
+                break;
+            case '.':
+                slot.active = false;
+                break;
+            default:
+                throw std::runtime_error("/!\\ SpriteZone error: Unknown sprite character: " + std::string(1, c));
+        }
+        return slot;
+    }
+
     Texture Texture::load(const std::string& filename) {
         std::ifstream file(filename);
         if (!file.is_open())
@@ -114,6 +130,91 @@ namespace fast {
                 Color temp = pixels_[y][x];
                 pixels_[y][x] = pixels_[height_ - 1 - y][x];
                 pixels_[height_ - 1 - y][x] = temp;
+            }
+        }
+    }
+
+    Sprite::Sprite(const std::string& texture, float scale) : scale_(scale) {
+        texture_ = Texture::load(texture);
+    }
+
+    SpriteZone::SpriteZone(int width, int height) : width_(width), height_(height) {
+        zone_.resize(height);
+
+        for (int y = 0; y < height; y++)
+            zone_[y].resize(width);
+    }
+
+    SpriteZone SpriteZone::load(const std::string& filename) {
+        std::ifstream file(filename);
+        if (!file.is_open())
+            throw std::runtime_error("/!\\ SpriteZone error: File openning failed. (" + filename + ")");
+
+        std::string mode;
+        std::getline(file, mode);
+        
+        mode.erase(0, mode.find_first_not_of(" \t\r\n"));
+        mode.erase(mode.find_last_not_of(" \t\r\n") + 1);
+
+        int width, height;
+        file >> width >> height;
+        file.ignore();
+
+        SpriteZone spritezone(width, height);
+
+        if (mode == "PALETTE") {
+            for (int y = 0; y < height; y++) {
+                std::string line;
+                std::getline(file, line);
+                
+                if (line.length() < static_cast<size_t>(width)) {
+                    throw std::runtime_error("/!\\ SpriteZone error: line " + std::to_string(y) + 
+                                           " is too short (expected " + std::to_string(width) + 
+                                           " characters, got " + std::to_string(line.length()) + ")");
+                }
+
+                for (int x = 0; x < width; x++)
+                    spritezone.zone_[y][x] = get_sprite_from_char(line[x]);
+            }
+        }
+        else {
+            throw std::runtime_error("/!\\ Unknown SpriteZone mode, must be PALETTE");
+        }
+
+        return spritezone;
+    }
+
+
+    SpriteSlot SpriteZone::get(int x, int y) const {
+        if (x < 0 || x >= width_ || y < 0 || y >= height_)
+            throw std::out_of_range("/!\\ SpriteZone coordinates out of range");
+
+        return zone_[y][x];
+    }
+
+    SpriteSlot SpriteZone::getFromLeft(int x, int y) const {
+        if (x < 0 || x >= width_ || y < 0 || y >= height_)
+            throw std::out_of_range("/!\\ SpriteZone coordinates out of range");
+
+        return zone_[y][width_ - 1 - x];
+    }
+
+    void SpriteZone::flip_horizontal() {
+        for (int y = 0; y < height_; y++) {
+            for (int x = 0; x < width_ / 2; x++) {
+                SpriteSlot temp = zone_[y][x];
+                zone_[y][x] = zone_[y][width_ - 1 - x];
+                zone_[y][width_ - 1 - x] = temp;
+            }
+        }
+    }
+
+    void SpriteZone::flip_vertical() {
+        for (int y = 0; y < height_ / 2; y++) {
+            for (int x = 0; x < width_; x++) {
+                SpriteSlot temp = zone_[y][x];
+                zone_[y][x] = zone_[height_ - 1 - y][x];
+                zone_[height_ - 1 - y][x] = temp;
             }
         }
     }

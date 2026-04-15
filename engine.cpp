@@ -96,34 +96,36 @@ namespace fast {
         float speed = 500.0f;
         float dt = 0.016f;
 
+        // ACCUMULATOR
         float roadPos = 0;
 
+        // ROAD SIZE CALCULATION
         float roadWidth = 1.5f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
         // float roadRight = roadLeft + roadWidth;
         float roadLeft = 0.5f - (roadWidth / 2.0f);
         float roadRight = 0.5f + (roadWidth / 2.0f);
         float zref = distance;
+        float pivot = 0.5f;
 
-        // Color road_pattern[6][9] = {
-        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-        //     {Colors::RED, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::RED},
-        //     {Colors::WHITE, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::GRAY, Colors::WHITE},
-        // };
-
-        Texture road_pattern = Texture::load("textures/rom.ppm");
+        // ROAD TEXTURE
+        Texture road_pattern = Texture::load("textures/basicroad.txt");
         road_pattern.flip_vertical();
         int pattern_height = road_pattern.height_;
         int pattern_width = road_pattern.width_;
 
-        // int pattern_height = sizeof(road_pattern) / sizeof(road_pattern[0]);
-        // int pattern_width = sizeof(road_pattern[0]) / sizeof(Color);
-        //std::cout << static_cast<float>(sizeof(road_pattern) / sizeof(road_pattern[0])) << std::endl;
-        //std::cout << static_cast<float>(sizeof(road_pattern[0]) / sizeof(Color)) << std::endl;
-        
+        // DECORATION SPRITES
+        SpriteZone spriteZone = SpriteZone::load("textures/romzone.txt");
+        spriteZone.setRoadOffset(0.15f);
+        spriteZone.setWidthScale(2.0f);
+
+        std::vector<std::vector<bool>> spritedL(spriteZone.height_, std::vector<bool>(spriteZone.width_, false));
+        std::vector<std::vector<bool>> spritedR(spriteZone.height_, std::vector<bool>(spriteZone.width_, false));
+
+        float spriteZoneLR = roadLeft - spriteZone.roadOffset_; // right border of the left sprite zone
+        float spriteZoneLL = spriteZoneLR - spriteZone.widthScale_; // left border of the left sprite zone
+        float spriteZoneRL = roadRight + spriteZone.roadOffset_; // left border of the right sprite zone
+        float spriteZoneRR = spriteZoneRL + spriteZone.widthScale_; // right border of the right sprite zone
 
         // ENGINE LOOP
         bool running = true;
@@ -138,11 +140,32 @@ namespace fast {
                         speed += 100.0f;
                     else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS)
                         speed -= 100.0f;
+                    else if (event.key.keysym.sym == SDLK_RIGHT)
+                        pivot -= 0.05f;
+                    else if (event.key.keysym.sym == SDLK_LEFT)
+                        pivot += 0.05f;
                 }
             }
 
-            for (int y = video_.height_ / 2 + 1 + (video_.height_ / 16); y < video_.height_; y++) {
+
+            // sky clear
+            for (int y = 0; y < video_.height_; ++y) {
+                for (int x = 0; x < video_.width_; ++x)
+                        video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
+            }
+
+            int lastStripIdx = -1;
+
+            for (int y = video_.height_ / 2 + 1 + (video_.height_ / 16); y < video_.height_ + (video_.height_ / 4) ; y++) {
                 float z = (cam_height * distance) / (y - (video_.height_ / 2));
+
+                int stripIdx = static_cast<int>((z + roadPos) / strip_size);
+
+                if (stripIdx != lastStripIdx) {
+                    lastStripIdx = stripIdx;
+                    for (auto& row : spritedL) std::fill(row.begin(), row.end(), false);
+                    for (auto& row : spritedR) std::fill(row.begin(), row.end(), false);
+                }
 
                 float texture_position = std::fmod(z + roadPos, strip_size);
                 float texture_normalized = texture_position / strip_size;
@@ -153,19 +176,36 @@ namespace fast {
                 if (road_idx_vertical >= pattern_height)
                     road_idx_vertical--;
 
+                int spritezone_idx_vertical = static_cast<int>((static_cast<float>(spriteZone.height_) * texture_normalized));
+                if (spritezone_idx_vertical >= spriteZone.height_)
+                    spritezone_idx_vertical--;
+                if (spritezone_idx_vertical <= 0)
+                    spritezone_idx_vertical = 0;
+
                 //std::cout << road_idx_vertical << std::endl;
 
-                float roadLeftProj = 0.5f + (((roadLeft - 0.5f) * zref) / z);
-                float roadRightProj = 0.5f + (((roadRight - 0.5f) * zref) / z);
+                float roadLeftProj = pivot + (((roadLeft - pivot) * zref) / z);
+                float roadRightProj = pivot + (((roadRight - pivot) * zref) / z);
 
-                for (int x = 0; x < video_.width_; ++x) {
+                float spriteZoneLRProj = pivot + (((spriteZoneLR - pivot) * zref) / z);
+                float spriteZoneLLProj = pivot + (((spriteZoneLL - pivot) * zref) / z);
+                float spriteZoneRLProj = pivot + (((spriteZoneRL - pivot) * zref) / z);
+                float spriteZoneRRProj = pivot + (((spriteZoneRR - pivot) * zref) / z);
+
+                for (int x = 0 - (video_.width_ / 4); x < video_.width_ + (video_.width_ / 4); x++) {
+                    // std::cout << '(' << x << ", " << y << ")\n";
+                    // std::cout << spriteZone.width_ / 8<< "\n";
                     float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
 
-                    if (texture_position < strip_size / 2.)
-                        video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE;
-                    else
-                        video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE2;
+                    // STRIP DRAWING
+                    if (0 <= y && y < video_.height_ && 0 <= x && x < video_.width_) {
+                        if (texture_position < strip_size / 2.)
+                            video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE;
+                        else
+                            video_.buffer_.pixels[x + y * video_.width_] = Colors::JADE2;
+                    }
 
+                    // ROAD DRAWING
                     if (roadLeftProj <= x_prop && x_prop <= roadRightProj) {
                         float x_prop_born = (x_prop - roadLeftProj) / (roadRightProj - roadLeftProj);
 
@@ -175,7 +215,104 @@ namespace fast {
 
                         //std::cout << '[' << road_idx_vertical << "][" << road_idx_horizon << ']' << std::endl;
 
-                        video_.buffer_.pixels[x + y * video_.width_] = road_pattern.get(road_idx_horizon, road_idx_vertical);
+                        if (0 <= y && y < video_.height_ && 0 <= x && x < video_.width_)
+                            video_.buffer_.pixels[x + y * video_.width_] = road_pattern.get(road_idx_horizon, road_idx_vertical);
+                    }
+
+                    // SIDE SPRITE DRAWING
+                    if (spriteZoneLLProj <= x_prop && x_prop <= spriteZoneLRProj) {
+                        float x_prop_born = (x_prop - spriteZoneLLProj) / (spriteZoneLRProj - spriteZoneLLProj);
+
+                        float cellwidth = (spriteZoneLRProj - spriteZoneLLProj) / static_cast<float>(spriteZone.width_);
+
+                        int spritezone_idx_horizon = static_cast<int>(static_cast<float>(spriteZone.width_) * x_prop_born);
+                        if (spritezone_idx_horizon >= spriteZone.width_)
+                            spritezone_idx_horizon--;
+                        if (spritezone_idx_horizon <= 0)
+                            spritezone_idx_horizon = 0;
+
+                        int xcell = static_cast<int>(std::round((spriteZoneLLProj + (spritezone_idx_horizon * cellwidth) + (cellwidth / 2)) * static_cast<float>(video_.width_)));
+
+                        if (!spritedL[spritezone_idx_vertical][spritezone_idx_horizon] && spriteZone.getFromLeft(spritezone_idx_horizon, spritezone_idx_vertical).active) {
+                            Sprite sprite = spriteZone.getFromLeft(spritezone_idx_horizon, spritezone_idx_vertical).sprite_;
+
+                            int spriteWidth = static_cast<int>(static_cast<float>(video_.width_) * zref * sprite.scale_ / z);
+                            int spriteHeight = spriteWidth * sprite.texture_.height_ / sprite.texture_.width_;
+
+                            int top = y - spriteHeight;
+                            int left = xcell - (spriteWidth / 2);
+
+                            for (int y_spr = top; y_spr < y; y_spr++) {
+                                float y_spr_normalized = static_cast<float>(y_spr - top) / static_cast<float>(spriteHeight);
+
+                                int sprite_texture_idx_vertical = static_cast<int>(static_cast<float>(sprite.texture_.height_) * y_spr_normalized);
+
+                                if (0 <= y_spr && y_spr < video_.height_) {
+
+                                    for (int x_spr = left; x_spr < xcell + (spriteWidth / 2); x_spr++) {
+                                        if (0 <= x_spr && x_spr < video_.width_) {
+                                            float x_spr_normalized = static_cast<float>(x_spr - left) / static_cast<float>(spriteWidth);
+
+                                            int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
+
+
+                                            video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                        }
+
+                                    }
+                                }
+                            }
+
+                            spritedL[spritezone_idx_vertical][spritezone_idx_horizon] = true;
+                        }
+
+                    }
+                    else if (spriteZoneRLProj <= x_prop && x_prop <= spriteZoneRRProj) {
+                        float x_prop_born = (x_prop - spriteZoneRLProj) / (spriteZoneRRProj - spriteZoneRLProj);
+
+                        float cellwidth = (spriteZoneRRProj - spriteZoneRLProj) / static_cast<float>(spriteZone.width_);
+
+                        int spritezone_idx_horizon = static_cast<int>(static_cast<float>(spriteZone.width_) * x_prop_born);
+                        if (spritezone_idx_horizon >= spriteZone.width_)
+                            spritezone_idx_horizon--;
+                        if (spritezone_idx_horizon <= 0)
+                            spritezone_idx_horizon = 0;
+
+                        int xcell = static_cast<int>(std::round((spriteZoneRLProj + (spritezone_idx_horizon * cellwidth) + (cellwidth / 2)) * static_cast<float>(video_.width_)));
+
+                        if (!spritedR[spritezone_idx_vertical][spritezone_idx_horizon] && spriteZone.get(spritezone_idx_horizon, spritezone_idx_vertical).active) {
+                            Sprite sprite = spriteZone.get(spritezone_idx_horizon, spritezone_idx_vertical).sprite_;
+
+                            int spriteWidth = static_cast<int>(static_cast<float>(video_.width_) * zref * sprite.scale_ / z);
+                            int spriteHeight = spriteWidth * sprite.texture_.height_ / sprite.texture_.width_;
+
+                            int top = y - spriteHeight;
+                            int left = xcell - (spriteWidth / 2);
+
+                            for (int y_spr = top; y_spr < y; y_spr++) {
+                                float y_spr_normalized = static_cast<float>(y_spr - top) / static_cast<float>(spriteHeight);
+
+                                int sprite_texture_idx_vertical = static_cast<int>(static_cast<float>(sprite.texture_.height_) * y_spr_normalized);
+
+                                if (0 <= y_spr && y_spr < video_.height_) {
+
+                                    for (int x_spr = left; x_spr < xcell + (spriteWidth / 2); x_spr++) {
+                                        if (0 <= x_spr && x_spr < video_.width_) {
+
+                                            float x_spr_normalized = static_cast<float>(x_spr - left) / static_cast<float>(spriteWidth);
+
+                                            int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
+
+                                            video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                        }
+
+                                    }
+                                }
+                            }
+
+                            spritedR[spritezone_idx_vertical][spritezone_idx_horizon] = true;
+                        }
+
                     }
 
                 }
@@ -183,7 +320,7 @@ namespace fast {
 
             roadPos += speed * dt;
             roadPos = std::fmod(roadPos, strip_size);
-
+            
             for (int i = 0; i < video_.width_ * video_.height_; ++i)
                 uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
 
