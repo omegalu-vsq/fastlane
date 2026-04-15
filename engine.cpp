@@ -115,7 +115,7 @@ namespace fast {
         int pattern_width = road_pattern.width_;
 
         // DECORATION SPRITES
-        SpriteZone spriteZone = SpriteZone::load("textures/romzone.txt");
+        SpriteZone spriteZone = SpriteZone::load("textures/sunfield.txt");
         spriteZone.setRoadOffset(0.15f);
         spriteZone.setWidthScale(2.0f);
 
@@ -256,7 +256,9 @@ namespace fast {
                                             int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
 
 
-                                            video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            Color painter = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            if (painter != Colors::TRANSPARENT)
+                                                video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
                                         }
 
                                     }
@@ -303,7 +305,9 @@ namespace fast {
 
                                             int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
 
-                                            video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            Color painter = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            if (painter != Colors::TRANSPARENT)
+                                                video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
                                         }
 
                                     }

@@ -24,6 +24,7 @@ namespace fast {
             case 'D': return Colors::DARK_BLUE;
             case 'Y': return Colors::GRAY;
             case '.': return Colors::BLACK;
+            case '-': return Colors::TRANSPARENT;
             default:
                 throw std::runtime_error("/!\\ Texture error: Unknown color character: " + c);
         }
@@ -34,7 +35,11 @@ namespace fast {
         switch (std::toupper(c)) {
             case 'R':
                 slot.active = true;
-                slot.sprite_ = Sprite("textures/rom.ppm", 0.1f);
+                slot.sprite_ = Sprite("textures/rom_transparent.ppm", 0.3f);
+                break;
+            case 'S':
+                slot.active = true;
+                slot.sprite_ = Sprite("textures/sunflower.ppm", 0.1f);
                 break;
             case '.':
                 slot.active = false;
