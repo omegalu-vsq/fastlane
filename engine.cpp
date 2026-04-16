@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <cstdint>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_events.h>
-#include <SDL2/SDL_keyboard.h>
 
 namespace fast {
 
@@ -61,6 +63,64 @@ namespace fast {
                     video.buffer_.pixels[x + y * video.width_] = out;
                 }
             }
+        }
+
+        std::vector<float> loadTrackCenters(const std::string& path) {
+            std::vector<float> centers;
+            std::ifstream file(path);
+            if (!file) {
+                return centers;
+            }
+
+            std::string line;
+            while (std::getline(file, line)) {
+                // Autorise les commentaires avec '#'
+                auto hash = line.find('#');
+                if (hash != std::string::npos) {
+                    line = line.substr(0, hash);
+                }
+
+                // Extraire tous les floats présents sur la ligne
+                std::size_t i = 0;
+                while (i < line.size()) {
+                    while (i < line.size() && std::isspace(static_cast<unsigned char>(line[i]))) {
+                        ++i;
+                    }
+                    if (i >= line.size()) break;
+
+                    try {
+                        std::size_t consumed = 0;
+                        float v = std::stof(line.substr(i), &consumed);
+                        centers.push_back(v);
+                        i += consumed;
+                    } catch (...) {
+                        // Si parsing impossible, avancer d'un caractère
+                        ++i;
+                    }
+                }
+            }
+
+            return centers;
+        }
+
+        float sampleTrackCenter(const std::vector<float>& centers, float t) {
+            if (centers.empty()) {
+                return 0.5f;
+            }
+            if (centers.size() == 1) {
+                return centers[0];
+            }
+
+            // t peut être n'importe quel réel ; on boucle sur la piste
+            float tt = t - std::floor(t);
+            float pos = tt * static_cast<float>(centers.size());
+            int i0 = static_cast<int>(std::floor(pos)) % static_cast<int>(centers.size());
+            int i1 = (i0 + 1) % static_cast<int>(centers.size());
+            float a = pos - std::floor(pos);
+
+            float c0 = centers[i0];
+            float c1 = centers[i1];
+            return c0 + (c1 - c0) * a;
         }
 
     }
@@ -148,8 +208,16 @@ namespace fast {
 
         const int horizon_y = video_.height_ / 2 + 1 + (video_.height_ / 16);
 
-        float roadPos = 0;
+        float roadPos = 0;   // avance texture (boucle)
+        float trackPos = 0;  // avance sur la piste (ne boucle pas ici)
         float road_curve = 0.f;
+
+        // Piste: suite de centres de projection (ex: 0.50 0.55 0.60 ...), bouclée.
+        // `track_step` = distance (en unités de déplacement) pour faire un tour complet
+        // de la liste des centres (plus grand = virages plus longs / moins rapides).
+        const float track_step = 8000.f;
+        const float center_to_curve = 1.f / 0.22f; // 0.22 -> ~plein virage
+        const std::vector<float> track_centers = loadTrackCenters("track.txt");
 
         float roadWidth = 0.9f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
@@ -178,16 +246,9 @@ namespace fast {
                 }
             }
 
-            const Uint8* keys = SDL_GetKeyboardState(nullptr);
-            float curve_input = 0.f;
-            if (keys[SDL_SCANCODE_LEFT]) {
-                curve_input -= 1.f;
-            }
-            if (keys[SDL_SCANCODE_RIGHT]) {
-                curve_input += 1.f;
-            }
-
-            float curve_target = std::clamp(curve_input * 0.55f, -1.f, 1.f);
+            float center_target = sampleTrackCenter(track_centers, trackPos / track_step);
+            center_target = std::clamp(center_target, 0.1f, 0.9f);
+            float curve_target = std::clamp((center_target - 0.5f) * center_to_curve, -1.f, 1.f);
             float blend = 1.f - std::exp(-dt / curve_tau);
             road_curve += (curve_target - road_curve) * blend;
 
@@ -201,7 +262,9 @@ namespace fast {
 
                 int road_idx_vertical = static_cast<int>(std::round(static_cast<float>(sizeof(road_pattern)) * texture_normalized));
 
-                float lateral = road_curve * 0.22f * (zref / z);
+                // Courbe visible surtout vers l'horizon (loin), comme dans les jeux pseudo-3D.
+                float far = std::clamp(1.f - (zref / z), 0.f, 1.f);
+                float lateral = road_curve * 0.45f * (far * far);
                 float roadLeftProj = 0.5f + lateral + (((roadLeft - 0.5f) * zref) / z);
                 float roadRightProj = 0.5f + lateral + (((roadRight - 0.5f) * zref) / z);
 
@@ -224,8 +287,10 @@ namespace fast {
                 }
             }
 
-            roadPos += speed * dt;
+            float ds = speed * dt;
+            roadPos += ds;
             roadPos = std::fmod(roadPos, strip_size);
+            trackPos += ds;
 
             for (int i = 0; i < video_.width_ * video_.height_; ++i)
                 uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
