@@ -271,9 +271,21 @@ namespace fast {
                 center_far = std::clamp(center_far, 0.1f, 0.9f);
 
                 float center_proj = current_center + (center_far - current_center) * (far * far * far);
-                float lateral = (center_proj - 0.5f) * lateral_gain;
+                // Réduit fortement le décalage près de la caméra (sinon la route sort du champ).
+                float lateral = (center_proj - 0.5f) * lateral_gain * (far * far);
                 float roadLeftProj = 0.5f + lateral + (((roadLeft - 0.5f) * zref) / z);
                 float roadRightProj = 0.5f + lateral + (((roadRight - 0.5f) * zref) / z);
+
+                // Sécurité: garder la route dans l'écran quand le virage est très serré.
+                if (roadLeftProj < 0.f) {
+                    float s = -roadLeftProj;
+                    roadLeftProj += s;
+                    roadRightProj += s;
+                } else if (roadRightProj > 1.f) {
+                    float s = 1.f - roadRightProj;
+                    roadLeftProj += s;
+                    roadRightProj += s;
+                }
 
                 for (int x = 0; x < video_.width_; ++x) {
                     float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_);
