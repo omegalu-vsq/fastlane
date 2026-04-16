@@ -33,6 +33,7 @@ namespace fast {
         inline const Color JADE2{72, 143, 131};
         inline const Color DARK_BLUE{0, 79, 163};
         inline const Color GRAY{69, 69, 61};
+        inline const Color DARK_GRAY{30, 30, 25};
         inline const Color TRANSPARENT{255, 0, 255};
     }
 

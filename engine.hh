@@ -11,6 +11,7 @@ namespace fast {
         // Calculation methods
         void basic();
         void projection();
+        void projection2();
         void power2(); // 0/20
     };
 }

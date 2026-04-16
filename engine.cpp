@@ -363,6 +363,180 @@ namespace fast {
         }
     }
 
+    void Engine::projection2() {
+    std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
+
+    // PARAMETERS
+    float distance = 512.0f;                  // camera -> screen
+    float cam_height = (video_.height_ / 2); // camera height above ground
+    float strip_size = 512.0f;
+    float speed = 500.0f;
+    float dt = 0.016f;
+
+    // ACCUMULATOR
+    float roadPos = 0.0f;
+
+    // ROAD PARAMETERS
+    float roadWidth = 1.5f;
+    float lateral_pos = 0.5f;
+    float pivot = 0.5f;
+    float zref = distance;
+
+    // SEGMENT PIPELINE PARAMETERS
+    float segmentLength = 32.0f;   // distance between world slices
+    int drawDistance = 5000;        // number of segments drawn
+
+    auto clampInt = [](int v, int lo, int hi) {
+        return (v < lo) ? lo : (v > hi ? hi : v);
+    };
+
+    auto lerp = [](float a, float b, float t) {
+        return a + (b - a) * t;
+    };
+
+    bool running = true;
+    while (running) {
+        SDL_Event event;
+
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_QUIT) {
+                running = false;
+            }
+            else if (event.type == SDL_KEYDOWN) {
+                if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS)
+                    speed += 100.0f;
+                else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS)
+                    speed -= 100.0f;
+                else if (event.key.keysym.sym == SDLK_RIGHT)
+                    pivot -= 0.05f;
+                else if (event.key.keysym.sym == SDLK_LEFT)
+                    pivot += 0.05f;
+                else if (event.key.keysym.sym == SDLK_z)
+                    cam_height += 10.0f;
+                else if (event.key.keysym.sym == SDLK_s)
+                    cam_height -= 10.0f;
+                else if (event.key.keysym.sym == SDLK_q)
+                    lateral_pos += 0.1f;
+                else if (event.key.keysym.sym == SDLK_d)
+                    lateral_pos -= 0.1f;
+                else if (event.key.keysym.sym == SDLK_c) {
+                    lateral_pos = 0.5f;
+                    pivot = 0.5f;
+                    cam_height = video_.height_ / 2.0f;
+                }
+            }
+        }
+
+        float roadLeft = lateral_pos - (roadWidth / 2.0f);
+        float roadRight = lateral_pos + (roadWidth / 2.0f);
+
+        // sky clear
+        for (int y = 0; y < video_.height_; ++y) {
+            for (int x = 0; x < video_.width_; ++x) {
+                video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
+            }
+        }
+
+        float horizon = video_.height_ / 2.0f;
+
+        // Camera progression inside the segment grid
+        float cameraOffset = std::fmod(roadPos, segmentLength);
+        if (cameraOffset < 0.0f)
+            cameraOffset += segmentLength;
+
+        // Draw from far to near
+        for (int i = drawDistance; i >= 1; --i) {
+            float zFar = (i * segmentLength) - cameraOffset;
+            float zNear = ((i - 1) * segmentLength) - cameraOffset;
+
+            if (zNear < 1.0f)
+                zNear = 1.0f;
+            if (zFar <= zNear)
+                continue;
+
+            // Flat road for now : worldY = 0 everywhere
+            float screenYFar = horizon + (distance * cam_height) / zFar;
+            float screenYNear = horizon + (distance * cam_height) / zNear;
+
+            // Project road borders in the same normalized screen space as before
+            float leftFarNorm  = pivot + (((roadLeft  - pivot) * zref) / zFar);
+            float rightFarNorm = pivot + (((roadRight - pivot) * zref) / zFar);
+
+            float leftNearNorm  = pivot + (((roadLeft  - pivot) * zref) / zNear);
+            float rightNearNorm = pivot + (((roadRight - pivot) * zref) / zNear);
+
+            int yTop = static_cast<int>(std::round(screenYFar));
+            int yBottom = static_cast<int>(std::round(screenYNear));
+
+            if (yBottom < 0 || yTop >= video_.height_)
+                continue;
+
+            int yStart = clampInt(yTop, 0, video_.height_ - 1);
+            int yEnd   = clampInt(yBottom, 0, video_.height_ - 1);
+
+            if (yEnd < yStart)
+                continue;
+
+            // World-anchored strip color (same spirit as z + roadPos in your scanline)
+            float sampleZ = zNear + roadPos;
+            float stripPhase = std::fmod(sampleZ, strip_size);
+            if (stripPhase < 0.0f)
+                stripPhase += strip_size;
+
+            bool lightBand = (stripPhase < strip_size / 2.0f);
+
+            Color grassColor = lightBand ? Colors::JADE : Colors::JADE2;
+            Color roadColor  = lightBand ? Colors::DARK_GRAY : Colors::GRAY;
+
+            for (int y = yStart; y <= yEnd; ++y) {
+                float t;
+                if (yBottom == yTop)
+                    t = 0.0f;
+                else
+                    t = (static_cast<float>(y) - screenYFar) / (screenYNear - screenYFar);
+
+                float leftNorm  = lerp(leftFarNorm,  leftNearNorm,  t);
+                float rightNorm = lerp(rightFarNorm, rightNearNorm, t);
+
+                int leftPix = static_cast<int>(std::round(leftNorm * static_cast<float>(video_.width_ - 1)));
+                int rightPix = static_cast<int>(std::round(rightNorm * static_cast<float>(video_.width_ - 1)));
+
+                if (leftPix > rightPix)
+                    std::swap(leftPix, rightPix);
+
+                // full ground band
+                for (int x = 0; x < video_.width_; ++x)
+                    video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+
+                // road band
+                int xStart = clampInt(leftPix, 0, video_.width_ - 1);
+                int xEnd   = clampInt(rightPix, 0, video_.width_ - 1);
+
+                for (int x = xStart; x <= xEnd; ++x)
+                    video_.buffer_.pixels[x + y * video_.width_] = roadColor;
+            }
+        }
+
+        roadPos += speed * dt;
+        roadPos = std::fmod(roadPos, strip_size);
+
+        for (int i = 0; i < video_.width_ * video_.height_; ++i)
+            uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
+
+        SDL_UpdateTexture(
+            video_.texture_,
+            nullptr,
+            uploadBuffer.data(),
+            video_.width_ * sizeof(uint32_t)
+        );
+
+        SDL_RenderClear(video_.renderer_);
+        SDL_RenderCopy(video_.renderer_, video_.texture_, nullptr, nullptr);
+        SDL_RenderPresent(video_.renderer_);
+        SDL_Delay(static_cast<Uint32>(dt * 100.0f));
+    }
+}
+
     void Engine::power2() {
         for (int y = 0; y < video_.height_; ++y) {
             for (int x = 0; x < video_.width_; ++x)
