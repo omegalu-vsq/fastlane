@@ -103,8 +103,9 @@ namespace fast {
         float roadWidth = 1.5f;
         // float roadLeft = (1.0f - roadWidth) / 2.0f;
         // float roadRight = roadLeft + roadWidth;
-        float roadLeft = 0.5f - (roadWidth / 2.0f);
-        float roadRight = 0.5f + (roadWidth / 2.0f);
+        float lateral_pos = 0.5f;
+        float roadLeft = lateral_pos - (roadWidth / 2.0f);
+        float roadRight = lateral_pos + (roadWidth / 2.0f);
         float zref = distance;
         float pivot = 0.5f;
 
@@ -115,7 +116,7 @@ namespace fast {
         int pattern_width = road_pattern.width_;
 
         // DECORATION SPRITES
-        SpriteZone spriteZone = SpriteZone::load("textures/sunfield.txt");
+        SpriteZone spriteZone = SpriteZone::load("textures/romzone.txt");
         spriteZone.setRoadOffset(0.15f);
         spriteZone.setWidthScale(2.0f);
 
@@ -144,9 +145,29 @@ namespace fast {
                         pivot -= 0.05f;
                     else if (event.key.keysym.sym == SDLK_LEFT)
                         pivot += 0.05f;
+                    else if (event.key.keysym.sym == SDLK_z)
+                        cam_height += 10.0f;
+                    else if (event.key.keysym.sym == SDLK_s)
+                        cam_height -= 10.0f;
+                    else if (event.key.keysym.sym == SDLK_q)
+                        lateral_pos += 0.1f;
+                    else if (event.key.keysym.sym == SDLK_d)
+                        lateral_pos -= 0.1f;
+                    else if (event.key.keysym.sym == SDLK_c) {
+                        lateral_pos = 0.5f;
+                        pivot = 0.5f;
+                        cam_height = video_.height_ / 2;
+                    }
                 }
             }
 
+            roadLeft = lateral_pos - (roadWidth / 2.0f);
+            roadRight = lateral_pos + (roadWidth / 2.0f);
+
+            spriteZoneLR = roadLeft - spriteZone.roadOffset_;
+            spriteZoneLL = spriteZoneLR - spriteZone.widthScale_;
+            spriteZoneRL = roadRight + spriteZone.roadOffset_;
+            spriteZoneRR = spriteZoneRL + spriteZone.widthScale_;
 
             // sky clear
             for (int y = 0; y < video_.height_; ++y) {
@@ -156,7 +177,7 @@ namespace fast {
 
             int lastStripIdx = -1;
 
-            for (int y = video_.height_ / 2 + 1 + (video_.height_ / 16); y < video_.height_ + (video_.height_ / 4) ; y++) {
+            for (int y = video_.height_ / 2 + 1/* + (video_.height_ / 16)*/; y < video_.height_ + (video_.height_ / 4) ; y++) {
                 float z = (cam_height * distance) / (y - (video_.height_ / 2));
 
                 int stripIdx = static_cast<int>((z + roadPos) / strip_size);
