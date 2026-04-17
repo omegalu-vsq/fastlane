@@ -1,7 +1,5 @@
 PALETTE
-10 5
-S.S.S.S.S.
-.S.S.S.S.S
+10 3
 S.S.S.S.S.
 .S.S.S.S.S
 S.S.S.S.S.
