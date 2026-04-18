@@ -9,6 +9,8 @@
 #include <SDL2/SDL_timer.h>
 #include <SDL2/SDL_events.h>
 
+#define EPSILON 0.00001
+
 namespace fast {
     Engine::Engine(int width, int height) : video_(width, height) 
     {}
@@ -363,6 +365,12 @@ namespace fast {
         }
     }
 
+    float altitude(float z) {
+        float A = 0.0f;
+        float omega = 0.0005f;
+        return A * std::sin(omega * z + M_PI / 3);
+    }
+
     void Engine::projection2() {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
@@ -478,8 +486,8 @@ namespace fast {
                     continue;
 
                 // y_screen bounds computation
-                float screenYFar = horizon + (distance * cam_height) / zFar;
-                float screenYNear = horizon + (distance * cam_height) / zNear;
+                float screenYFar = horizon + (distance * (cam_height - altitude(zFar))) / zFar;
+                float screenYNear = horizon + (distance * (cam_height - altitude(zNear))) / zNear;
 
                 int yTop = static_cast<int>(std::round(screenYFar));
                 int yBottom = static_cast<int>(std::round(screenYNear));
@@ -526,7 +534,7 @@ namespace fast {
                     float rightProj = roadRightFarProj + (roadRightNearProj - roadRightFarProj) * y_prop;
 
                     float projWidth = rightProj - leftProj;
-                    if (projWidth <= 1e-6f) {
+                    if (projWidth <= EPSILON) {
                         for (int x = 0; x < video_.width_; ++x)
                             video_.buffer_.pixels[x + y * video_.width_] = grassColor;
                         continue;
@@ -562,7 +570,7 @@ namespace fast {
                     float invZFar = 1.0f / zFar;
                     float invZNear = 1.0f / zNear;
                     float invZ = invZFar + (invZNear - invZFar) * y_prop;
-                    if (invZ <= 1e-6f)
+                    if (invZ <= EPSILON)
                         continue;
 
                     float zSample = 1.0f / invZ;
@@ -600,9 +608,9 @@ namespace fast {
                 }
 
                 // SPRITE ZONE
-                if (i < drawDistance / 8) {
+                if (i < drawDistance / 10) {
                     float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
-                    float screenYMid = horizon + (distance * cam_height) / zMid;
+                    float screenYMid = horizon + (distance * (cam_height - altitude(zMid))) / zMid;
 
                     int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, strip_size) / segmentLength));
 
