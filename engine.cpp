@@ -365,20 +365,27 @@ namespace fast {
         }
     }
 
-    float altitude(float z) {
-        float A = 0.0f;
-        float omega = 0.0005f;
-        return A * std::sin(omega * z + M_PI / 3);
+    float altitude(float z, float a, float f, float offset) {
+        return a * std::sin(f * z + offset);
+    }
+
+    float altitude_derived(float z, float a, float f, float offset) {
+        return a * f * std::cos(f * z + offset);
     }
 
     void Engine::projection2() {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
-        // PARAMETERS
+        // CAMERA PARAMETERS
         float distance = 512.0f; // between camera & screen
-        float cam_height = (video_.height_ / 2); // between ground & camera
+        float cam_height = video_.height_ / 2.0f; // between ground & camera
+        float cam_height_base = video_.height_ / 2.0f; // between ground & camera
+        float horizon = video_.height_ / 2.0f;
+        float horizon_base = video_.height_ / 2.0f;
+        float vertical_pivot = distance / 2.0f;
+
         float strip_size = 512.0f;
-        float speed = 500.0f;
+        float speed_base = 500.0f;
         float dt = 0.016f;
 
         // ACCUMULATOR
@@ -410,6 +417,11 @@ namespace fast {
         float segmentLength = strip_size / spriteZone.height_; // distance between segment
         int drawDistance = 500; // number of segments to draw
 
+        // HILL PARAMETERS
+        float amplitude = 500.0f;
+        float freq = 0.0005f;
+        float phase = 0.0f;
+
         auto clampInt = [](int v, int lo, int hi) {
             return (v < lo) ? lo : (v > hi ? hi : v);
         };
@@ -426,26 +438,39 @@ namespace fast {
                 }
                 else if (event.type == SDL_KEYDOWN) {
                     if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS)
-                        speed += 100.0f;
+                        speed_base += 100.0f;
                     else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS)
-                        speed -= 100.0f;
+                        speed_base -= 100.0f;
                     else if (event.key.keysym.sym == SDLK_RIGHT)
                         pivot -= 0.05f;
                     else if (event.key.keysym.sym == SDLK_LEFT)
                         pivot += 0.05f;
+                    else if (event.key.keysym.sym == SDLK_UP)
+                        horizon_base += 5.f;
+                    else if (event.key.keysym.sym == SDLK_DOWN)
+                        horizon_base -= 5.f;
                     else if (event.key.keysym.sym == SDLK_z)
-                        cam_height += 10.0f;
+                        cam_height_base += 10.0f;
                     else if (event.key.keysym.sym == SDLK_s)
-                        cam_height -= 10.0f;
+                        cam_height_base -= 10.0f;
                     else if (event.key.keysym.sym == SDLK_q)
                         lateral_pos += 0.1f;
                     else if (event.key.keysym.sym == SDLK_d)
                         lateral_pos -= 0.1f;
+                    else if (event.key.keysym.sym == SDLK_t) {
+                        horizon += 5.0f;
+                        cam_height -= 5.0f;
+                    }
+                    else if (event.key.keysym.sym == SDLK_g) {
+                        horizon -= 5.0f;
+                        cam_height += 5.0f;
+                    }
                     else if (event.key.keysym.sym == SDLK_c) {
                         lateral_pos = 0.5f;
                         pivot = 0.5f;
-                        cam_height = video_.height_ / 2.0f;
-                        speed = 500.0f;
+                        cam_height_base = video_.height_ / 2.0f;
+                        speed_base = 500.0f;
+                        horizon_base = cam_height;
                     }
                 }
             }
@@ -469,7 +494,21 @@ namespace fast {
 
             int laststripIdx = -1;
 
-            float horizon = video_.height_ / 2.0f;
+            // DERIVED UNDER CAMERA
+            float tiltstr = 2.8f;
+            float gradient = altitude_derived(0 + roadPos, amplitude, freq, phase);
+            //std::cout << gradient << '\n';
+            float tilt = gradient * tiltstr;
+            horizon = horizon_base + (horizon_base * (tilt));
+
+            // HEIGHT UNDER CAMERA
+            float cam_height_diff = altitude(distance * 0.75f + roadPos, amplitude, freq, phase);
+            cam_height = cam_height_base + cam_height_diff;
+
+            // SPEED PERSPECTIVE ADAPTATION
+            float gradient_screen = altitude_derived(distance + roadPos, amplitude, freq, phase);
+            float speed = speed_base - speed_base * gradient_screen * 1.1f;
+            std::cout << speed << '\n';
 
             float cameraOffset = std::fmod(roadPos, segmentLength);
             if (cameraOffset < 0.0f)
@@ -486,8 +525,8 @@ namespace fast {
                     continue;
 
                 // y_screen bounds computation
-                float screenYFar = horizon + (distance * (cam_height - altitude(zFar))) / zFar;
-                float screenYNear = horizon + (distance * (cam_height - altitude(zNear))) / zNear;
+                float screenYFar = horizon + (distance * (cam_height - altitude(zFar + roadPos, amplitude, freq, phase))) / zFar;
+                float screenYNear = horizon + (distance * (cam_height - altitude(zNear + roadPos, amplitude, freq, phase))) / zNear;
 
                 int yTop = static_cast<int>(std::round(screenYFar));
                 int yBottom = static_cast<int>(std::round(screenYNear));
@@ -610,7 +649,7 @@ namespace fast {
                 // SPRITE ZONE
                 if (i < drawDistance / 10) {
                     float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
-                    float screenYMid = horizon + (distance * (cam_height - altitude(zMid))) / zMid;
+                    float screenYMid = horizon + (distance * (cam_height - altitude(zMid + roadPos, amplitude, freq, phase))) / zMid;
 
                     int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, strip_size) / segmentLength));
 
