@@ -3,7 +3,9 @@
 
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
+#include <string>
 #include <vector>
 
 #include <SDL2/SDL_timer.h>
@@ -365,12 +367,64 @@ namespace fast {
         }
     }
 
-    float altitude(float z, float a, float f, float offset) {
+    std::vector<float> parseAltitudeFile(const std::string& filename) {
+        std::vector<float> altitudes;
+        std::ifstream file(filename);
+        
+        if (!file.is_open()) {
+            std::cerr << "Erreur: Impossible d'ouvrir le fichier " << filename << std::endl;
+            return altitudes;
+        }
+        
+        std::string line;
+        while (std::getline(file, line)) {
+            try {
+                float value = std::stof(line);
+                altitudes.push_back(value);
+            } catch (const std::invalid_argument& e) {
+                std::cerr << "Erreur: Ligne non numérique ignorée: " << line << std::endl;
+            } catch (const std::out_of_range& e) {
+                std::cerr << "Erreur: Valeur hors limites ignorée: " << line << std::endl;
+            }
+        }
+        
+        file.close();
+        return altitudes;
+    }
+
+    float altitude_sin(float z, float a, float f, float offset) {
         return a * std::sin(f * z + offset);
     }
 
-    float altitude_derived(float z, float a, float f, float offset) {
+    float altitude_derived_sin(float z, float a, float f, float offset) {
         return a * f * std::cos(f * z + offset);
+    }
+
+    float altitude(const std::vector<float>& altitudes, float t, int i, float tens) {
+        i = i % altitudes.size();
+        int im1 = i - 1;
+        if (im1 < 0) im1 = altitudes.size() - 1; 
+        int ip1 = (i + 1) % altitudes.size();
+        int ip2 = (i + 2) % altitudes.size();
+
+        return ((altitudes[i])
+                        + (-tens * altitudes[im1] + tens * altitudes[ip1]) * t
+                        + (2 * tens * altitudes[im1] + (tens - 3) * altitudes[i] + (3 - 2 * tens) * altitudes[ip1] - tens * altitudes[ip2]) * std::pow(t, 2)
+                        + (-tens * altitudes[im1] + (2 - tens) * altitudes[i] + (tens - 2) * altitudes[ip1] + tens * altitudes[ip2]) * std::pow(t, 3));
+
+    }
+
+    float altitude_derived(const std::vector<float>& altitudes, float t, int i, float tens) {
+        i = i % altitudes.size();
+        int im1 = i - 1;
+        if (im1 < 0) im1 = altitudes.size() - 1; 
+        int ip1 = (i + 1) % altitudes.size();
+        int ip2 = (i + 2) % altitudes.size();
+
+        return ((-tens * altitudes[im1] + tens * altitudes[ip1])
+                        + (2 * tens * altitudes[im1] + (tens - 3) * altitudes[i] + (3 - 2 * tens) * altitudes[ip1] - tens * altitudes[ip2]) * 2 * t
+                        + (-tens * altitudes[im1] + (2 - tens) * altitudes[i] + (tens - 2) * altitudes[ip1] + tens * altitudes[ip2]) * 3 * std::pow(t, 2));
+
     }
 
     void Engine::projection2() {
@@ -421,6 +475,10 @@ namespace fast {
         float amplitude = 500.0f;
         float freq = 0.0005f;
         float phase = 0.0f;
+        std::vector<float> altitudes = parseAltitudeFile("roads/road.txt");
+        std::cout << "altitudes size = " << altitudes.size() << std::endl;
+        float altitudeStep = strip_size * 2.0f;
+        float tension = 0.5f;
 
         auto clampInt = [](int v, int lo, int hi) {
             return (v < lo) ? lo : (v > hi ? hi : v);
@@ -493,22 +551,55 @@ namespace fast {
             }
 
             int laststripIdx = -1;
+            
+            float tiltstr = 2.8f;
+
+            // *** OLD SINUS ALTITUDE CALCULATION METHOD*** //
+
+            // // DERIVED UNDER CAMERA
+            // float gradient = altitude_derived_sin(0 + roadPos, amplitude, freq, phase);
+            // //std::cout << gradient << '\n';
+            // float tilt = gradient * tiltstr;
+            // horizon = horizon_base + (horizon_base * (tilt));
+
+            // // HEIGHT UNDER CAMERA
+            // float cam_height_diff = altitude_sin(distance * 0.75f + roadPos, amplitude, freq, phase);
+            // std::cout << cam_height_diff << '\n';
+            // cam_height = cam_height_base + cam_height_diff;
+
+            // // SPEED PERSPECTIVE ADAPTATION
+            // float gradient_screen = altitude_derived_sin(distance + roadPos, amplitude, freq, phase);
+            // float speed = speed_base - speed_base * gradient_screen * 1.1f;
+
+            // *** END OF OLD SINUS ALTITUDE CALCULATION METHOD *** //
+
+            
+
+            // *** NEW PARSING ALTITUDE CALCULATION METHOD *** //
 
             // DERIVED UNDER CAMERA
-            float tiltstr = 2.8f;
-            float gradient = altitude_derived(0 + roadPos, amplitude, freq, phase);
-            //std::cout << gradient << '\n';
+            int stripIdxPrime = (0 + roadPos) / altitudeStep;
+            float stripPosPrime = std::fmod(0 + roadPos, altitudeStep) / altitudeStep;
+            float gradient = altitude_derived(altitudes, stripPosPrime, stripIdxPrime, tension) / altitudeStep;            
             float tilt = gradient * tiltstr;
+            std::cout << stripIdxPrime << '\n';
             horizon = horizon_base + (horizon_base * (tilt));
 
             // HEIGHT UNDER CAMERA
-            float cam_height_diff = altitude(distance * 0.75f + roadPos, amplitude, freq, phase);
+            int stripIdx = (distance * 0.75f + roadPos) / altitudeStep;
+            float stripPos = std::fmod(distance * 0.75f + roadPos, altitudeStep) / altitudeStep;
+            float cam_height_diff = altitude(altitudes, stripPos, stripIdx, tension);
             cam_height = cam_height_base + cam_height_diff;
+            std::cout << cam_height << '\n';
 
-            // SPEED PERSPECTIVE ADAPTATION
-            float gradient_screen = altitude_derived(distance + roadPos, amplitude, freq, phase);
-            float speed = speed_base - speed_base * gradient_screen * 1.1f;
-            std::cout << speed << '\n';
+            // SPEED PERSPECTIVE ADAPTATION            
+            int stripIdxPrimeSpeed = (distance + roadPos) / altitudeStep;
+            float stripPosPrimeSpeed = std::fmod(distance + roadPos, altitudeStep) / altitudeStep;
+            float gradient_screen = altitude_derived(altitudes, stripPosPrimeSpeed, stripIdxPrimeSpeed, tension) / altitudeStep;
+            float speed = speed_base /*- speed_base * gradient_screen * 1.1f*/;
+
+            // *** END OF NEW PARSING ALTITUDE CALCULATION METHOD *** //
+
 
             float cameraOffset = std::fmod(roadPos, segmentLength);
             if (cameraOffset < 0.0f)
@@ -524,9 +615,14 @@ namespace fast {
                 if (zFar <= zNear)
                     continue;
 
-                // y_screen bounds computation
-                float screenYFar = horizon + (distance * (cam_height - altitude(zFar + roadPos, amplitude, freq, phase))) / zFar;
-                float screenYNear = horizon + (distance * (cam_height - altitude(zNear + roadPos, amplitude, freq, phase))) / zNear;
+                // y_screen bounds computation            
+                int stripIdxZFar = (zFar + roadPos) / altitudeStep;
+                float stripPosZFar = std::fmod(zFar + roadPos, altitudeStep) / altitudeStep;
+                int stripIdxZNear = (zNear + roadPos) / altitudeStep;
+                float stripPosZNear = std::fmod(zNear + roadPos, altitudeStep) / altitudeStep;
+
+                float screenYFar = horizon + (distance * (cam_height - altitude(altitudes, stripPosZFar, stripIdxZFar, tension))) / zFar;
+                float screenYNear = horizon + (distance * (cam_height - altitude(altitudes, stripPosZNear, stripIdxZNear, tension))) / zNear;
 
                 int yTop = static_cast<int>(std::round(screenYFar));
                 int yBottom = static_cast<int>(std::round(screenYNear));
@@ -649,7 +745,11 @@ namespace fast {
                 // SPRITE ZONE
                 if (i < drawDistance / 10) {
                     float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
-                    float screenYMid = horizon + (distance * (cam_height - altitude(zMid + roadPos, amplitude, freq, phase))) / zMid;
+
+                    int stripIdxZMid = (zMid + roadPos) / altitudeStep;
+                    float stripPosZMid = std::fmod(zMid + roadPos, altitudeStep) / altitudeStep;
+
+                    float screenYMid = horizon + (distance * (cam_height - altitude(altitudes, stripPosZMid, stripIdxZMid, tension))) / zMid;
 
                     int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, strip_size) / segmentLength));
 
@@ -765,7 +865,7 @@ namespace fast {
             }
 
             roadPos += speed * dt;
-            roadPos = std::fmod(roadPos, strip_size * 512);
+            roadPos = std::fmod(roadPos, altitudeStep * altitudes.size());
 
             for (int i = 0; i < video_.width_ * video_.height_; ++i)
                 uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
