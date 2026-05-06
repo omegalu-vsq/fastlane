@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cctype>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -392,6 +393,86 @@ namespace fast {
         return altitudes;
     }
 
+    struct TrackProfile {
+        std::vector<float> altitude;
+        std::vector<float> centerOffset; // normalized screen space offset (0 = centered)
+    };
+
+    static TrackProfile parseTrackProfileFile(const std::string& filename) {
+        TrackProfile profile;
+        std::ifstream file(filename);
+
+        if (!file.is_open()) {
+            std::cerr << "Erreur: Impossible d'ouvrir le fichier " << filename << std::endl;
+            return profile;
+        }
+
+        enum class TrackMode { Offset, Curvature };
+        TrackMode mode = TrackMode::Offset;
+
+        std::string line;
+        float curvatureAccum = 0.0f;
+        while (std::getline(file, line)) {
+            // Format:
+            //   mode offset
+            //   <altitude> <centerOffset>
+            //
+            // or
+            //   mode curvature
+            //   <altitude> <curvature>
+            //
+            // centerOffset is a normalized horizontal offset (e.g. -0.25..0.25)
+            // curvature is an incremental steering value integrated over the track
+            try {
+                // skip leading spaces
+                size_t start = 0;
+                while (start < line.size() && std::isspace(static_cast<unsigned char>(line[start])))
+                    ++start;
+                if (start >= line.size())
+                    continue;
+                if (line[start] == '#')
+                    continue;
+
+                // optional mode header
+                if (line.compare(start, 4, "mode") == 0) {
+                    if (line.find("curvature", start) != std::string::npos)
+                        mode = TrackMode::Curvature;
+                    else if (line.find("offset", start) != std::string::npos)
+                        mode = TrackMode::Offset;
+                    continue;
+                }
+
+                size_t pos = start;
+                float a = std::stof(line.substr(pos), &pos);
+                profile.altitude.push_back(a);
+
+                // advance pos within original line
+                pos += start;
+                while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos])))
+                    ++pos;
+
+                float second = 0.0f;
+                if (pos < line.size())
+                    second = std::stof(line.substr(pos));
+
+                if (mode == TrackMode::Offset) {
+                    profile.centerOffset.push_back(second);
+                } else {
+                    curvatureAccum += second;
+                    profile.centerOffset.push_back(curvatureAccum);
+                }
+            } catch (const std::exception&) {
+                // ignore malformed lines (keeps file flexible for comments/blanks)
+            }
+        }
+
+        if (profile.centerOffset.size() != profile.altitude.size()) {
+            profile.centerOffset.resize(profile.altitude.size(), 0.0f);
+        }
+
+        return profile;
+    }
+
     float altitude_sin(float z, float a, float f, float offset) {
         return a * std::sin(f * z + offset);
     }
@@ -427,6 +508,20 @@ namespace fast {
 
     }
 
+    static float splineValue(const std::vector<float>& v, float t, int i, float tens) {
+        // Same Catmull-Rom style interpolation as altitude()
+        i = i % v.size();
+        int im1 = i - 1;
+        if (im1 < 0) im1 = static_cast<int>(v.size()) - 1;
+        int ip1 = (i + 1) % static_cast<int>(v.size());
+        int ip2 = (i + 2) % static_cast<int>(v.size());
+
+        return (v[i]
+            + (-tens * v[im1] + tens * v[ip1]) * t
+            + (2 * tens * v[im1] + (tens - 3) * v[i] + (3 - 2 * tens) * v[ip1] - tens * v[ip2]) * std::pow(t, 2)
+            + (-tens * v[im1] + (2 - tens) * v[i] + (tens - 2) * v[ip1] + tens * v[ip2]) * std::pow(t, 3));
+    }
+
     void Engine::projection2() {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
@@ -436,7 +531,7 @@ namespace fast {
         float cam_height_base = video_.height_ / 2.0f; // between ground & camera
         float horizon = video_.height_ / 2.0f;
         float horizon_base = video_.height_ / 2.0f;
-        float vertical_pivot = distance / 2.0f;
+        float pivot = 0.5f; // screen-space pivot (used by sprite-zone projection)
 
         float strip_size = 512.0f;
         float speed_base = 500.0f;
@@ -444,12 +539,19 @@ namespace fast {
 
         // ACCUMULATOR
         float roadPos = 0.0f;
+        float camDxDzSmoothed = 0.0f; // camera yaw state (smoothed)
 
         // ROAD PARAMETERS
-        float roadWidth = 1.5f;
+        float roadWidth = 1.5f; // world units (projected)
         float lateral_pos = 0.5f;
-        float pivot = 0.5f;
         float zref = distance;
+
+        // CURVE PARAMETERS
+        // With pseudo-3D curves, it's much more stable to keep "curve" in world X units
+        // and project (roadX - cameraX) / z onto screen.
+        // IMPORTANT: keep X in the SAME normalized units as roadWidth/sprite offsets.
+        // If this is too large, everything flies off-screen (including sprite zones).
+        float curveWorldScale = 180.0f; // amplifies centerOffset/curvature integration (tune this)
 
         // ROAD TEXTURE
         Texture road_pattern = Texture::load("textures/basicroad.txt");
@@ -471,12 +573,14 @@ namespace fast {
         float segmentLength = strip_size / spriteZone.height_; // distance between segment
         int drawDistance = 500; // number of segments to draw
 
-        // HILL PARAMETERS
-        float amplitude = 500.0f;
-        float freq = 0.0005f;
-        float phase = 0.0f;
-        std::vector<float> altitudes = parseAltitudeFile("roads/road.txt");
-        std::cout << "altitudes size = " << altitudes.size() << std::endl;
+        // HILL PARAMETERS (legacy sinus values kept in commented block below)
+        TrackProfile track = parseTrackProfileFile("roads/track.txt");
+        if (track.altitude.empty()) {
+            // Backward compatible fallback
+            track.altitude = parseAltitudeFile("roads/road.txt");
+            track.centerOffset.assign(track.altitude.size(), 0.0f);
+        }
+        std::cout << "track size = " << track.altitude.size() << std::endl;
         float altitudeStep = strip_size * 2.0f;
         float tension = 0.5f;
 
@@ -533,9 +637,47 @@ namespace fast {
                 }
             }
 
-            // NORMALIZED ROAD & SPRITEZONE BORDERS
-            float roadLeft = lateral_pos - (roadWidth / 2.0f);
-            float roadRight = lateral_pos + (roadWidth / 2.0f);
+            // TRACK X IN WORLD UNITS (curve integrated over distance)
+            auto trackXAt = [&](float worldZ) -> float {
+                if (track.centerOffset.empty())
+                    return 0.0f;
+                int idx = static_cast<int>(worldZ / altitudeStep);
+                float t = std::fmod(worldZ, altitudeStep) / altitudeStep;
+                if (t < 0.0f) t += 1.0f;
+                return curveWorldScale * splineValue(track.centerOffset, t, idx, tension);
+            };
+
+            // Player lateral in world units (quick mapping from old normalized control)
+            float playerX = (lateral_pos - 0.5f) * roadWidth * 2.0f;
+
+            // Camera X follows track (car attached to camera)
+            float cameraX = trackXAt(roadPos);
+
+            // Camera yaw (look into the curve):
+            // approximate heading by looking ahead on the track centerline.
+            float lookAheadZ = distance * 2.0f;
+            float cameraTurnStrength = 0.85f; // base strength
+            float cameraTurnSmoothing = 0.08f; // 0..1 (higher = more responsive)
+            float maxCamDxDz = 0.60f; // clamp (prevents too aggressive rotation)
+            float dxAhead = trackXAt(roadPos + lookAheadZ) - trackXAt(roadPos);
+            float camDxDzTarget = cameraTurnStrength * (dxAhead / lookAheadZ); // ~tan(theta)
+            if (camDxDzTarget > maxCamDxDz) camDxDzTarget = maxCamDxDz;
+            if (camDxDzTarget < -maxCamDxDz) camDxDzTarget = -maxCamDxDz;
+            camDxDzSmoothed += (camDxDzTarget - camDxDzSmoothed) * cameraTurnSmoothing;
+            float camDxDz = camDxDzSmoothed;
+
+            auto camSpaceX = [&](float z) -> float {
+                // Convert world road center at (roadPos+z) into camera space with yaw.
+                // yaw term (camDxDz*z) makes the camera look towards the curve direction.
+                return (trackXAt(roadPos + z) - cameraX) - playerX - (camDxDz * z);
+            };
+
+            // Near segment (for sprite zones borders) - project center and width at z=distance
+            float xNear = camSpaceX(distance);
+            float roadCenterNearProj = 0.5f + (xNear * zref) / distance;
+            float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / distance;
+            float roadLeft = roadCenterNearProj - halfRoadNearProj;
+            float roadRight = roadCenterNearProj + halfRoadNearProj;
 
             float spriteZoneLR = roadLeft - spriteZone.roadOffset_; // right border of the left sprite zone
             float spriteZoneLL = spriteZoneLR - spriteZone.widthScale_; // left border of the left sprite zone
@@ -580,7 +722,7 @@ namespace fast {
             // DERIVED UNDER CAMERA
             int stripIdxPrime = (0 + roadPos) / altitudeStep;
             float stripPosPrime = std::fmod(0 + roadPos, altitudeStep) / altitudeStep;
-            float gradient = altitude_derived(altitudes, stripPosPrime, stripIdxPrime, tension) / altitudeStep;            
+            float gradient = altitude_derived(track.altitude, stripPosPrime, stripIdxPrime, tension) / altitudeStep;            
             float tilt = gradient * tiltstr;
             std::cout << stripIdxPrime << '\n';
             horizon = horizon_base + (horizon_base * (tilt));
@@ -588,15 +730,16 @@ namespace fast {
             // HEIGHT UNDER CAMERA
             int stripIdx = (distance * 0.75f + roadPos) / altitudeStep;
             float stripPos = std::fmod(distance * 0.75f + roadPos, altitudeStep) / altitudeStep;
-            float cam_height_diff = altitude(altitudes, stripPos, stripIdx, tension);
+            float cam_height_diff = altitude(track.altitude, stripPos, stripIdx, tension);
             cam_height = cam_height_base + cam_height_diff;
             std::cout << cam_height << '\n';
 
             // SPEED PERSPECTIVE ADAPTATION            
             int stripIdxPrimeSpeed = (distance + roadPos) / altitudeStep;
             float stripPosPrimeSpeed = std::fmod(distance + roadPos, altitudeStep) / altitudeStep;
-            float gradient_screen = altitude_derived(altitudes, stripPosPrimeSpeed, stripIdxPrimeSpeed, tension) / altitudeStep;
+            float gradient_screen = altitude_derived(track.altitude, stripPosPrimeSpeed, stripIdxPrimeSpeed, tension) / altitudeStep;
             float speed = speed_base /*- speed_base * gradient_screen * 1.1f*/;
+            (void)gradient_screen;
 
             // *** END OF NEW PARSING ALTITUDE CALCULATION METHOD *** //
 
@@ -621,8 +764,8 @@ namespace fast {
                 int stripIdxZNear = (zNear + roadPos) / altitudeStep;
                 float stripPosZNear = std::fmod(zNear + roadPos, altitudeStep) / altitudeStep;
 
-                float screenYFar = horizon + (distance * (cam_height - altitude(altitudes, stripPosZFar, stripIdxZFar, tension))) / zFar;
-                float screenYNear = horizon + (distance * (cam_height - altitude(altitudes, stripPosZNear, stripIdxZNear, tension))) / zNear;
+                float screenYFar = horizon + (distance * (cam_height - altitude(track.altitude, stripPosZFar, stripIdxZFar, tension))) / zFar;
+                float screenYNear = horizon + (distance * (cam_height - altitude(track.altitude, stripPosZNear, stripIdxZNear, tension))) / zNear;
 
                 int yTop = static_cast<int>(std::round(screenYFar));
                 int yBottom = static_cast<int>(std::round(screenYNear));
@@ -639,12 +782,20 @@ namespace fast {
                 if (yEnd < yStart)
                      continue;
 
-                // Road borders
-                float roadLeftFarProj  = pivot + (((roadLeft  - pivot) * zref) / zFar);
-                float roadRightFarProj = pivot + (((roadRight - pivot) * zref) / zFar);
+                // Road borders with real pseudo-3D curve projection
+                float xFar = camSpaceX(zFar);
+                float xNear = camSpaceX(zNear);
 
-                float roadLeftNearProj  = pivot + (((roadLeft  - pivot) * zref) / zNear);
-                float roadRightNearProj = pivot + (((roadRight - pivot) * zref) / zNear);
+                float centerFarProj = 0.5f + (xFar * zref) / zFar;
+                float centerNearProj = 0.5f + (xNear * zref) / zNear;
+
+                float halfRoadFarProj = ((roadWidth * 0.5f) * zref) / zFar;
+                float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / zNear;
+
+                float roadLeftFarProj = centerFarProj - halfRoadFarProj;
+                float roadRightFarProj = centerFarProj + halfRoadFarProj;
+                float roadLeftNearProj = centerNearProj - halfRoadNearProj;
+                float roadRightNearProj = centerNearProj + halfRoadNearProj;
 
                 // SpriteZone flags reset
                 int stripIdx = static_cast<int>((zFar + roadPos) / strip_size);
@@ -749,16 +900,21 @@ namespace fast {
                     int stripIdxZMid = (zMid + roadPos) / altitudeStep;
                     float stripPosZMid = std::fmod(zMid + roadPos, altitudeStep) / altitudeStep;
 
-                    float screenYMid = horizon + (distance * (cam_height - altitude(altitudes, stripPosZMid, stripIdxZMid, tension))) / zMid;
+                    float screenYMid = horizon + (distance * (cam_height - altitude(track.altitude, stripPosZMid, stripIdxZMid, tension))) / zMid;
 
                     int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, strip_size) / segmentLength));
 
                     int yMid = static_cast<int>(std::round(screenYMid));
                     yMid = clampInt(yMid, 0, video_.height_ - 1);
-                    float spriteZoneLRProj = pivot + (((spriteZoneLR - pivot) * zref) / zMid);
-                    float spriteZoneLLProj = pivot + (((spriteZoneLL - pivot) * zref) / zMid);
-                    float spriteZoneRLProj = pivot + (((spriteZoneRL - pivot) * zref) / zMid);
-                    float spriteZoneRRProj = pivot + (((spriteZoneRR - pivot) * zref) / zMid);
+
+                    // Sprite zones must follow the curved road.
+                    // Apply offsets in the same "world/normalized" units as roadWidth, THEN project.
+                    float xMid = camSpaceX(zMid); // road center relative to camera (with yaw)
+
+                    float spriteZoneLRProj = 0.5f + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_) * zref) / zMid; // right edge of left zone
+                    float spriteZoneLLProj = 0.5f + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_ - spriteZone.widthScale_) * zref) / zMid; // left edge of left zone
+                    float spriteZoneRLProj = 0.5f + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_) * zref) / zMid; // left edge of right zone
+                    float spriteZoneRRProj = 0.5f + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_ + spriteZone.widthScale_) * zref) / zMid; // right edge of right zone
 
                     int spritezone_idx_vertical = segmentIdx;
 
@@ -865,7 +1021,7 @@ namespace fast {
             }
 
             roadPos += speed * dt;
-            roadPos = std::fmod(roadPos, altitudeStep * altitudes.size());
+            roadPos = std::fmod(roadPos, altitudeStep * track.altitude.size());
 
             for (int i = 0; i < video_.width_ * video_.height_; ++i)
                 uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
