@@ -528,7 +528,7 @@ namespace fast {
                         pivot = 0.5f;
                         cam_height_base = video_.height_ / 2.0f;
                         speed_base = 500.0f;
-                        horizon_base = cam_height;
+                        horizon_base = cam_height_base;
                     }
                 }
             }
