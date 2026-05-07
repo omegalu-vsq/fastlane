@@ -616,9 +616,9 @@ namespace fast {
                     else if (event.key.keysym.sym == SDLK_s)
                         cam_height_base -= 10.0f;
                     else if (event.key.keysym.sym == SDLK_q)
-                        lateral_pos += 0.1f;
-                    else if (event.key.keysym.sym == SDLK_d)
                         lateral_pos -= 0.1f;
+                    else if (event.key.keysym.sym == SDLK_d)
+                        lateral_pos += 0.1f;
                     else if (event.key.keysym.sym == SDLK_t) {
                         horizon += 5.0f;
                         cam_height -= 5.0f;
