@@ -542,7 +542,7 @@ namespace fast {
         float camDxDzSmoothed = 0.0f; // camera yaw state (smoothed)
 
         // ROAD PARAMETERS
-        float roadWidth = 1.5f; // world units (projected)
+        float roadWidth = 1.5f; // road width scale
         float lateral_pos = 0.5f;
         float zref = distance;
 
@@ -620,12 +620,12 @@ namespace fast {
                     else if (event.key.keysym.sym == SDLK_d)
                         lateral_pos += 0.1f;
                     else if (event.key.keysym.sym == SDLK_t) {
-                        horizon += 5.0f;
-                        cam_height -= 5.0f;
+                        horizon_base += 5.0f;
+                        cam_height_base -= 5.0f;
                     }
                     else if (event.key.keysym.sym == SDLK_g) {
-                        horizon -= 5.0f;
-                        cam_height += 5.0f;
+                        horizon_base -= 5.0f;
+                        cam_height_base += 5.0f;
                     }
                     else if (event.key.keysym.sym == SDLK_c) {
                         lateral_pos = 0.5f;
@@ -647,24 +647,24 @@ namespace fast {
                 return curveWorldScale * splineValue(track.centerOffset, t, idx, tension);
             };
 
-            // Player lateral in world units (quick mapping from old normalized control)
-            float playerX = (lateral_pos - 0.5f) * roadWidth * 2.0f;
+            // camera lateral in road reference
+            float playerX = (lateral_pos - 0.5f) * roadWidth;
 
             // Camera X follows track (car attached to camera)
             float cameraX = trackXAt(roadPos);
 
             // Camera yaw (look into the curve):
             // approximate heading by looking ahead on the track centerline.
-            float lookAheadZ = distance * 2.0f;
+            float lookAheadZ = distance;
             float cameraTurnStrength = 0.85f; // base strength
-            float cameraTurnSmoothing = 0.08f; // 0..1 (higher = more responsive)
+            float cameraTurnSmoothing = 0.08f;
             float maxCamDxDz = 0.60f; // clamp (prevents too aggressive rotation)
             float dxAhead = trackXAt(roadPos + lookAheadZ) - trackXAt(roadPos);
-            float camDxDzTarget = cameraTurnStrength * (dxAhead / lookAheadZ); // ~tan(theta)
+            float camDxDzTarget = cameraTurnStrength * (dxAhead / lookAheadZ);
             if (camDxDzTarget > maxCamDxDz) camDxDzTarget = maxCamDxDz;
             if (camDxDzTarget < -maxCamDxDz) camDxDzTarget = -maxCamDxDz;
             camDxDzSmoothed += (camDxDzTarget - camDxDzSmoothed) * cameraTurnSmoothing;
-            float camDxDz = camDxDzSmoothed;
+            float camDxDz = camDxDzTarget;
 
             auto camSpaceX = [&](float z) -> float {
                 // Convert world road center at (roadPos+z) into camera space with yaw.
@@ -674,7 +674,7 @@ namespace fast {
 
             // Near segment (for sprite zones borders) - project center and width at z=distance
             float xNear = camSpaceX(distance);
-            float roadCenterNearProj = 0.5f + (xNear * zref) / distance;
+            float roadCenterNearProj = pivot + (xNear * zref) / distance;
             float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / distance;
             float roadLeft = roadCenterNearProj - halfRoadNearProj;
             float roadRight = roadCenterNearProj + halfRoadNearProj;
@@ -786,8 +786,8 @@ namespace fast {
                 float xFar = camSpaceX(zFar);
                 float xNear = camSpaceX(zNear);
 
-                float centerFarProj = 0.5f + (xFar * zref) / zFar;
-                float centerNearProj = 0.5f + (xNear * zref) / zNear;
+                float centerFarProj = pivot + (xFar * zref) / zFar;
+                float centerNearProj = pivot + (xNear * zref) / zNear;
 
                 float halfRoadFarProj = ((roadWidth * 0.5f) * zref) / zFar;
                 float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / zNear;
@@ -907,14 +907,12 @@ namespace fast {
                     int yMid = static_cast<int>(std::round(screenYMid));
                     yMid = clampInt(yMid, 0, video_.height_ - 1);
 
-                    // Sprite zones must follow the curved road.
-                    // Apply offsets in the same "world/normalized" units as roadWidth, THEN project.
-                    float xMid = camSpaceX(zMid); // road center relative to camera (with yaw)
+                    float xMid = camSpaceX(zMid);
 
-                    float spriteZoneLRProj = 0.5f + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_) * zref) / zMid; // right edge of left zone
-                    float spriteZoneLLProj = 0.5f + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_ - spriteZone.widthScale_) * zref) / zMid; // left edge of left zone
-                    float spriteZoneRLProj = 0.5f + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_) * zref) / zMid; // left edge of right zone
-                    float spriteZoneRRProj = 0.5f + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_ + spriteZone.widthScale_) * zref) / zMid; // right edge of right zone
+                    float spriteZoneLRProj = pivot + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_) * zref) / zMid; // right edge of left zone
+                    float spriteZoneLLProj = pivot + ((xMid - (roadWidth * 0.5f) - spriteZone.roadOffset_ - spriteZone.widthScale_) * zref) / zMid; // left edge of left zone
+                    float spriteZoneRLProj = pivot + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_) * zref) / zMid; // left edge of right zone
+                    float spriteZoneRRProj = pivot + ((xMid + (roadWidth * 0.5f) + spriteZone.roadOffset_ + spriteZone.widthScale_) * zref) / zMid; // right edge of right zone
 
                     int spritezone_idx_vertical = segmentIdx;
 
