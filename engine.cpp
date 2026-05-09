@@ -1,6 +1,7 @@
 #include "engine.hh"
 #include "texture.hh"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cctype>
@@ -551,7 +552,12 @@ namespace fast {
         // and project (roadX - cameraX) / z onto screen.
         // IMPORTANT: keep X in the SAME normalized units as roadWidth/sprite offsets.
         // If this is too large, everything flies off-screen (including sprite zones).
-        float curveWorldScale = 180.0f; // amplifies centerOffset/curvature integration (tune this)
+        float curveWorldScale = 200.0f; // amplifies centerOffset/curvature integration (tune this)
+        
+        // CAMERA EFFECT SETTINGS
+        bool yawed = true;
+        bool latfol = true;
+        bool heightfol = true;
 
         // ROAD TEXTURE
         Texture road_pattern = Texture::load("textures/basicroad.txt");
@@ -559,8 +565,12 @@ namespace fast {
         int pattern_height = road_pattern.height_;
         int pattern_width = road_pattern.width_;
 
+        // GRASS TEXTURE
+        Texture grass_pattern = Texture::load("textures/rom.ppm");
+        float grassWidth = roadWidth;
+
        // DECORATION SPRITES
-        SpriteZone spriteZone = SpriteZone::load("textures/sunfield.txt");
+        SpriteZone spriteZone = SpriteZone::load("textures/romzone.txt");
         spriteZone.setRoadOffset(0.15f);
         spriteZone.setWidthScale(2.0f);
 
@@ -584,11 +594,7 @@ namespace fast {
         float altitudeStep = strip_size * 2.0f;
         float tension = 0.5f;
 
-        auto clampInt = [](int v, int lo, int hi) {
-            return (v < lo) ? lo : (v > hi ? hi : v);
-        };
-
-        // SDL LOOP
+        // ENGINE & SDL LOOP
         bool running = true;
         while (running) {
             SDL_Event event;
@@ -627,12 +633,31 @@ namespace fast {
                         horizon_base -= 5.0f;
                         cam_height_base += 5.0f;
                     }
+                    else if (event.key.keysym.sym == SDLK_y)
+                        yawed = !yawed;
+                    else if (event.key.keysym.sym == SDLK_l)
+                        latfol = !latfol;
+                    else if (event.key.keysym.sym == SDLK_h) {
+                        if (heightfol) {
+                            horizon_base = horizon;
+                            cam_height_base = cam_height;
+                            heightfol = false;
+                        }
+                        else {
+                            cam_height_base = video_.height_ / 2;
+                            horizon_base = cam_height_base;
+                            heightfol = true;
+                        }
+                    }
                     else if (event.key.keysym.sym == SDLK_c) {
                         lateral_pos = 0.5f;
                         pivot = 0.5f;
                         cam_height_base = video_.height_ / 2.0f;
                         speed_base = 500.0f;
                         horizon_base = cam_height_base;
+                        yawed = true;
+                        latfol = true;
+                        heightfol = true;
                     }
                 }
             }
@@ -647,34 +672,31 @@ namespace fast {
                 return curveWorldScale * splineValue(track.centerOffset, t, idx, tension);
             };
 
-            // camera lateral in road reference
+            // screen normalized camera lateral in road reference
             float playerX = (lateral_pos - 0.5f) * roadWidth;
 
-            // Camera X follows track (car attached to camera)
+            // camera lateral position from track file
             float cameraX = trackXAt(roadPos);
 
-            // Camera yaw (look into the curve):
-            // approximate heading by looking ahead on the track centerline.
-            float lookAheadZ = distance;
-            float cameraTurnStrength = 0.85f; // base strength
-            float cameraTurnSmoothing = 0.08f;
-            float maxCamDxDz = 0.60f; // clamp (prevents too aggressive rotation)
+            // camera rotation
+            float lookAheadZ = distance; // arbitrary value, depends on the rendering you want
+            float cameraTurnStrength = 0.85f;
+            float maxCamDxDz = 0.60f; // clamp
             float dxAhead = trackXAt(roadPos + lookAheadZ) - trackXAt(roadPos);
             float camDxDzTarget = cameraTurnStrength * (dxAhead / lookAheadZ);
             if (camDxDzTarget > maxCamDxDz) camDxDzTarget = maxCamDxDz;
             if (camDxDzTarget < -maxCamDxDz) camDxDzTarget = -maxCamDxDz;
-            camDxDzSmoothed += (camDxDzTarget - camDxDzSmoothed) * cameraTurnSmoothing;
             float camDxDz = camDxDzTarget;
 
             auto camSpaceX = [&](float z) -> float {
                 // Convert world road center at (roadPos+z) into camera space with yaw.
                 // yaw term (camDxDz*z) makes the camera look towards the curve direction.
-                return (trackXAt(roadPos + z) - cameraX) - playerX - (camDxDz * z);
+                return (trackXAt(roadPos + z) - (latfol ? cameraX : 0.0f)) - playerX - (yawed ? (camDxDz * z) : 0.0f);
             };
 
-            // Near segment (for sprite zones borders) - project center and width at z=distance
-            float xNear = camSpaceX(distance);
-            float roadCenterNearProj = pivot + (xNear * zref) / distance;
+            // NORMALIZED ROAD & SPRITEZONE BORDER (updated but legacy)
+            float xRef = camSpaceX(distance);
+            float roadCenterNearProj = pivot + (xRef * zref) / distance;
             float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / distance;
             float roadLeft = roadCenterNearProj - halfRoadNearProj;
             float roadRight = roadCenterNearProj + halfRoadNearProj;
@@ -724,21 +746,21 @@ namespace fast {
             float stripPosPrime = std::fmod(0 + roadPos, altitudeStep) / altitudeStep;
             float gradient = altitude_derived(track.altitude, stripPosPrime, stripIdxPrime, tension) / altitudeStep;            
             float tilt = gradient * tiltstr;
-            std::cout << stripIdxPrime << '\n';
-            horizon = horizon_base + (horizon_base * (tilt));
+            //std::cout << stripIdxPrime << '\n';
+            horizon = horizon_base + (heightfol ? (horizon_base * (tilt)) : 0.0f);
 
             // HEIGHT UNDER CAMERA
             int stripIdx = (distance * 0.75f + roadPos) / altitudeStep;
             float stripPos = std::fmod(distance * 0.75f + roadPos, altitudeStep) / altitudeStep;
             float cam_height_diff = altitude(track.altitude, stripPos, stripIdx, tension);
-            cam_height = cam_height_base + cam_height_diff;
-            std::cout << cam_height << '\n';
+            cam_height = cam_height_base + (heightfol ? cam_height_diff : 0.0f);
+            //std::cout << cam_height << '\n';
 
             // SPEED PERSPECTIVE ADAPTATION            
             int stripIdxPrimeSpeed = (distance + roadPos) / altitudeStep;
             float stripPosPrimeSpeed = std::fmod(distance + roadPos, altitudeStep) / altitudeStep;
             float gradient_screen = altitude_derived(track.altitude, stripPosPrimeSpeed, stripIdxPrimeSpeed, tension) / altitudeStep;
-            float speed = speed_base /*- speed_base * gradient_screen * 1.1f*/;
+            float speed = speed_base - (heightfol ? (speed_base * gradient_screen * 1.1f) : 0.0f);
             (void)gradient_screen;
 
             // *** END OF NEW PARSING ALTITUDE CALCULATION METHOD *** //
@@ -748,7 +770,7 @@ namespace fast {
             if (cameraOffset < 0.0f)
                 cameraOffset += segmentLength;
 
-            // ENGINE LOOP
+            // PROJECTION LOOP
             for (int i = drawDistance; i >= 1; --i) {
                 float zFar = (i * segmentLength) - cameraOffset;
                 float zNear = ((i - 1) * segmentLength) - cameraOffset;
@@ -776,8 +798,8 @@ namespace fast {
                 if (yBottom < 0 || yTop >= video_.height_)
                     continue;
 
-                int yStart = clampInt(yTop, 0, video_.height_ - 1);
-                int yEnd = clampInt(yBottom, 0, video_.height_ - 1);
+                int yStart = std::clamp(yTop, 0, video_.height_ - 1);
+                int yEnd = std::clamp(yBottom, 0, video_.height_ - 1);
 
                 if (yEnd < yStart)
                      continue;
@@ -789,13 +811,13 @@ namespace fast {
                 float centerFarProj = pivot + (xFar * zref) / zFar;
                 float centerNearProj = pivot + (xNear * zref) / zNear;
 
-                float halfRoadFarProj = ((roadWidth * 0.5f) * zref) / zFar;
-                float halfRoadNearProj = ((roadWidth * 0.5f) * zref) / zNear;
+                float roadWidthFarProj = (roadWidth * zref) / zFar;
+                float roadWidthNearProj = (roadWidth * zref) / zNear;
 
-                float roadLeftFarProj = centerFarProj - halfRoadFarProj;
-                float roadRightFarProj = centerFarProj + halfRoadFarProj;
-                float roadLeftNearProj = centerNearProj - halfRoadNearProj;
-                float roadRightNearProj = centerNearProj + halfRoadNearProj;
+                float roadLeftFarProj = centerFarProj - (roadWidthFarProj / 2.0f);
+                float roadRightFarProj = centerFarProj + (roadWidthFarProj / 2.0f);
+                float roadLeftNearProj = centerNearProj - (roadWidthNearProj / 2.0f);
+                float roadRightNearProj = centerNearProj + (roadWidthNearProj / 2.0f);
 
                 // SpriteZone flags reset
                 int stripIdx = static_cast<int>((zFar + roadPos) / strip_size);
@@ -838,9 +860,9 @@ namespace fast {
                     if (leftPix > rightPix)
                         std::swap(leftPix, rightPix);
 
-                    // road
-                    int xStart = clampInt(leftPix, 0, video_.width_ - 1);
-                    int xEnd = clampInt(rightPix, 0, video_.width_ - 1);
+                    // road border in pixels
+                    int xStart = std::clamp(leftPix, 0, video_.width_ - 1);
+                    int xEnd = std::clamp(rightPix, 0, video_.width_ - 1);
 
                     if (xEnd < xStart) {
                         for (int x = 0; x < video_.width_; ++x)
@@ -848,11 +870,8 @@ namespace fast {
                         continue;
                     }
 
-                    for (int x = 0; x < xStart; ++x)
-                        video_.buffer_.pixels[x + y * video_.width_] = grassColor;
-                    for (int x = xEnd + 1; x < video_.width_; ++x)
-                        video_.buffer_.pixels[x + y * video_.width_] = grassColor;
 
+                    // normalized depth computation in one strip for texture vertical indexes
                     float invZFar = 1.0f / zFar;
                     float invZNear = 1.0f / zNear;
                     float invZ = invZFar + (invZNear - invZFar) * y_prop;
@@ -860,13 +879,26 @@ namespace fast {
                         continue;
 
                     float zSample = 1.0f / invZ;
-                    float vPos = std::fmod(zSample + roadPos, strip_size);
-                    if (vPos < 0.0f)
-                        vPos += strip_size;
+                    float depthPos = std::fmod(zSample + roadPos, strip_size);
+                    if (depthPos < 0.0f)
+                        depthPos += strip_size;
 
-                    float vNorm = vPos / strip_size;
-                    int road_idx_vertical = static_cast<int>(vNorm * static_cast<float>(pattern_height));
-                    road_idx_vertical = clampInt(road_idx_vertical, 0, pattern_height - 1);
+                    float depth_prop = depthPos / strip_size;
+
+
+                    // /!\ GRASS ZONE EN TRAVAUX
+                    int grass_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(grass_pattern.height_));
+                    grass_idx_vertical = std::clamp(grass_idx_vertical, 0, grass_pattern.height_ - 1);
+
+                    for (int x = 0; x < xStart; ++x)
+                        video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+                    for (int x = xEnd + 1; x < video_.width_; ++x)
+                        video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+                    // /!\ GRASS ZONE EN TRAVAUX
+
+                    
+                    int road_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(pattern_height));
+                    road_idx_vertical = std::clamp(road_idx_vertical, 0, pattern_height - 1);
 
                     // int road_idx_vertical = static_cast<int>(((static_cast<float>(segmentIdx) + y_prop) / segmentCount) * static_cast<float>(pattern_height));
                     // if (road_idx_vertical >= pattern_height) road_idx_vertical--;
@@ -884,7 +916,7 @@ namespace fast {
                         //std::cout << x_prop << std::endl;
 
                         int road_idx_horizon = static_cast<int>(x_prop * static_cast<float>(pattern_width));
-                        road_idx_horizon = clampInt(road_idx_horizon, 0, pattern_width - 1);
+                        road_idx_horizon = std::clamp(road_idx_horizon, 0, pattern_width - 1);
                         //std::cout << road_idx_horizon << std::endl;
 
                         if (0 <= x && x < video_.width_ && 0 <= y && y < video_.height_)
@@ -894,7 +926,7 @@ namespace fast {
                 }
 
                 // SPRITE ZONE
-                if (i < drawDistance / 10) {
+                if (i < drawDistance / 1) {
                     float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
 
                     int stripIdxZMid = (zMid + roadPos) / altitudeStep;
@@ -905,7 +937,7 @@ namespace fast {
                     int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, strip_size) / segmentLength));
 
                     int yMid = static_cast<int>(std::round(screenYMid));
-                    yMid = clampInt(yMid, 0, video_.height_ - 1);
+                    yMid = std::clamp(yMid, 0, video_.height_ + video_.height_ / 4);
 
                     float xMid = camSpaceX(zMid);
 
@@ -918,8 +950,8 @@ namespace fast {
 
                     // LEFT
                     if (spriteZoneLLProj < spriteZoneLRProj && spriteZoneLRProj > 0.0f && spriteZoneLLProj < 1.0f) {
-                        int xLeftStart = clampInt(static_cast<int>(std::round(spriteZoneLLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
-                        int xLeftEnd = clampInt(static_cast<int>(std::round(spriteZoneLRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xLeftStart = std::clamp(static_cast<int>(std::round(spriteZoneLLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xLeftEnd = std::clamp(static_cast<int>(std::round(spriteZoneLRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
 
                         for (int x = xLeftStart; x <= xLeftEnd; ++x) {
                             float x_prop = (static_cast<float>(x) / (video_.width_ - 1));
@@ -928,7 +960,7 @@ namespace fast {
                             float cellwidth = (spriteZoneLRProj - spriteZoneLLProj) / static_cast<float>(spriteZone.width_);
 
                             int spritezone_idx_horizon = static_cast<int>(static_cast<float>(spriteZone.width_) * x_prop_born);
-                            spritezone_idx_horizon = clampInt(spritezone_idx_horizon, 0, spriteZone.width_ - 1);
+                            spritezone_idx_horizon = std::clamp(spritezone_idx_horizon, 0, spriteZone.width_ - 1);
 
                             int xcell = static_cast<int>(std::round((spriteZoneLLProj + (spritezone_idx_horizon * cellwidth) + (cellwidth / 2)) * static_cast<float>(video_.width_)));
 
@@ -968,8 +1000,8 @@ namespace fast {
                     }
                     // RIGHT
                     if (spriteZoneRLProj < spriteZoneRRProj && spriteZoneRRProj > 0.0f && spriteZoneRLProj < 1.0f) {
-                        int xRightStart = clampInt(static_cast<int>(std::round(spriteZoneRLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
-                        int xRightEnd = clampInt(static_cast<int>(std::round(spriteZoneRRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xRightStart = std::clamp(static_cast<int>(std::round(spriteZoneRLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xRightEnd = std::clamp(static_cast<int>(std::round(spriteZoneRRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
 
                         for (int x = xRightStart; x <= xRightEnd; ++x) {
                             float x_prop = (static_cast<float>(x) / (video_.width_ - 1));
