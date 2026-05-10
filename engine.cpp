@@ -413,18 +413,8 @@ namespace fast {
         std::string line;
         float curvatureAccum = 0.0f;
         while (std::getline(file, line)) {
-            // Format:
-            //   mode offset
-            //   <altitude> <centerOffset>
-            //
-            // or
-            //   mode curvature
-            //   <altitude> <curvature>
-            //
-            // centerOffset is a normalized horizontal offset (e.g. -0.25..0.25)
-            // curvature is an incremental steering value integrated over the track
+
             try {
-                // skip leading spaces
                 size_t start = 0;
                 while (start < line.size() && std::isspace(static_cast<unsigned char>(line[start])))
                     ++start;
@@ -433,7 +423,6 @@ namespace fast {
                 if (line[start] == '#')
                     continue;
 
-                // optional mode header
                 if (line.compare(start, 4, "mode") == 0) {
                     if (line.find("curvature", start) != std::string::npos)
                         mode = TrackMode::Curvature;
@@ -446,7 +435,6 @@ namespace fast {
                 float a = std::stof(line.substr(pos), &pos);
                 profile.altitude.push_back(a);
 
-                // advance pos within original line
                 pos += start;
                 while (pos < line.size() && std::isspace(static_cast<unsigned char>(line[pos])))
                     ++pos;
@@ -462,7 +450,7 @@ namespace fast {
                     profile.centerOffset.push_back(curvatureAccum);
                 }
             } catch (const std::exception&) {
-                // ignore malformed lines (keeps file flexible for comments/blanks)
+                // ignore malformed lines
             }
         }
 
@@ -547,10 +535,6 @@ namespace fast {
         float zref = distance;
 
         // CURVE PARAMETERS
-        // With pseudo-3D curves, it's much more stable to keep "curve" in world X units
-        // and project (roadX - cameraX) / z onto screen.
-        // IMPORTANT: keep X in the SAME normalized units as roadWidth/sprite offsets.
-        // If this is too large, everything flies off-screen (including sprite zones).
         float curveWorldScale = 180.0f; // amplifies centerOffset/curvature integration (tune this)
 
         // ROAD TEXTURE
