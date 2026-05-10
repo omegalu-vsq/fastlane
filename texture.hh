@@ -22,6 +22,13 @@ namespace fast {
             void flip_horizontal();
             void flip_vertical();
     };
+    
+    class SkyTexture : public Texture {
+        public:
+            float shiftStrength_;
+            
+            static SkyTexture load(const std::string& filename, float strength);
+    };
 
     class Sprite {
         public:

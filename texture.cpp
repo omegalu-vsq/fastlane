@@ -112,6 +112,19 @@ namespace fast {
         return texture;
     }
 
+    SkyTexture SkyTexture::load(const std::string& filename, float strength) {
+        auto texture = Texture::load(filename);
+        
+        SkyTexture sky;
+        sky.height_ = texture.height_;
+        sky.width_ = texture.width_;
+        sky.pixels_ = texture.pixels_;
+
+        sky.shiftStrength_ = strength;
+
+        return sky;
+    }
+
     Color Texture::get(int x, int y) const {
         if (x < 0 || x >= width_ || y < 0 || y >= height_)
             throw std::out_of_range("/!\\ Texture coordinates out of range");

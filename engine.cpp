@@ -540,6 +540,7 @@ namespace fast {
 
         // ACCUMULATOR
         float roadPos = 0.0f;
+        float globalShiftParallax = 0.0f;
 
         // ROAD PARAMETERS
         float roadWidth = 1.5f; // road width scale
@@ -548,6 +549,10 @@ namespace fast {
 
         // CURVE PARAMETERS
         float curveStrength = 200.0f;
+
+        // SKY PARALLAX PARAMETERS
+        float parallaxStrength = 10.0f;
+        int delta_horizon = video_.height_ / 8; // to lower the draw zone
         
         // CAMERA EFFECT SETTINGS
         bool yawed = true;
@@ -563,6 +568,11 @@ namespace fast {
         // GRASS TEXTURE
         Texture grass_pattern = Texture::load("textures/grass.ppm");
         float grassWidth = roadWidth;
+
+        // SKY TEXTURE
+        std::vector<SkyTexture> skies;
+        skies.push_back(SkyTexture::load("textures/grass.ppm", 0.5f));
+        skies.push_back(SkyTexture::load("textures/rom_transparent.ppm", 1.0f));
 
        // DECORATION SPRITES
         SpriteZone spriteZone = SpriteZone::load("textures/sunfield.txt");
@@ -682,6 +692,7 @@ namespace fast {
             if (camDxDzTarget > maxCamDxDz) camDxDzTarget = maxCamDxDz;
             if (camDxDzTarget < -maxCamDxDz) camDxDzTarget = -maxCamDxDz;
             float camDxDz = camDxDzTarget;
+            std::cout << camDxDz << '\n';
 
             auto camSpaceX = [&](float z) -> float {
                 // Convert world road center at (roadPos+z) into camera space with yaw.
@@ -708,6 +719,7 @@ namespace fast {
                     video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
                 }
             }
+           
 
             int laststripIdx = -1;
             
@@ -756,6 +768,37 @@ namespace fast {
             float speed = speed_base - (heightfol ? (speed_base * gradient_screen * 1.1f) : 0.0f);
 
             // *** END OF NEW PARSING ALTITUDE CALCULATION METHOD *** //
+
+            globalShiftParallax += camDxDz * parallaxStrength;
+            globalShiftParallax = std::fmod(globalShiftParallax, 1.0f);
+
+            // SKY PAINTING
+            for (size_t i = 0; i < skies.size(); i++) {
+                for (int y = horizon + delta_horizon; y >= 0; y--) {
+                    float y_prop = static_cast<float>(y) / static_cast<float>(video_.height_ - 1);
+
+                    float normalized_under_horizon = (1 - (static_cast<float>(horizon + delta_horizon) / static_cast<float>(video_.height_)));
+                    
+                    int sky_idx_vertical = static_cast<int>(std::floor((y_prop + normalized_under_horizon) * static_cast<float>(skies[i].height_ - 1))); 
+                    sky_idx_vertical = std::clamp(sky_idx_vertical, 0, skies[i].height_ - 1);
+
+                    for (int x = 0; x < video_.width_; x++) {
+                        float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
+
+                        float x_prop_shifted = x_prop + (globalShiftParallax * skies[i].shiftStrength_);
+                        if (x_prop_shifted < 0.0f) x_prop_shifted += 1.0f;
+                        x_prop_shifted = std::fmod(x_prop_shifted, 1.0f);
+                        
+                        int sky_idx_horizon = static_cast<int>(std::floor(x_prop_shifted * static_cast<float>(skies[i].width_ - 1))); 
+                        sky_idx_horizon = std::clamp(sky_idx_horizon, 0, skies[i].width_ - 1);
+
+                        Color painter = skies[i].get(sky_idx_horizon, sky_idx_vertical);
+                        if (painter != Colors::TRANSPARENT)
+                            video_.buffer_.pixels[x + y * video_.width_] = skies[i].get(sky_idx_horizon, sky_idx_vertical);
+                    }
+                }
+            }
+
 
 
             float cameraOffset = std::fmod(roadPos, segmentLength);
