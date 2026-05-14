@@ -25,9 +25,10 @@ namespace fast {
     
     class SkyTexture : public Texture {
         public:
-            float shiftStrength_;
+            float horizontalShiftStrength_;
+            float verticalShiftStrength_;
             
-            static SkyTexture load(const std::string& filename, float strength);
+            static SkyTexture load(const std::string& filename, float strength, float verticalStrength);
     };
 
     class Sprite {

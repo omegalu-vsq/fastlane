@@ -1,7 +1,7 @@
 CC = g++
 
-CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp
-H_FILES  = video.hh point.hh vector.hh engine.hh texture.hh
+CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp camera.cpp road.cpp
+H_FILES  = video.hh point.hh vector.hh engine.hh texture.hh camera.hh road.hh
 
 OBJ_FILES = $(CPP_FILES:.cpp=.o)
 
@@ -71,5 +71,4 @@ build: $(OBJ_FILES)
 
 clean:
 	rm -f $(OBJ_FILES) fastlane
-
 

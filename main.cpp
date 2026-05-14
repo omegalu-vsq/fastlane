@@ -3,9 +3,9 @@
 #include <iostream>
 
 int main() {
-    fast::Engine engine{480, 360};
+    fast::Engine engine{480, 360, 10, 500};
 
-    engine.projection2();
+    engine.projection22();
 
     return 0;
 }

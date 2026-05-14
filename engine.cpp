@@ -1,4 +1,6 @@
+#include "camera.hh"
 #include "engine.hh"
+#include "road.hh"
 #include "texture.hh"
 
 #include <algorithm>
@@ -16,7 +18,7 @@
 #define EPSILON 0.00001
 
 namespace fast {
-    Engine::Engine(int width, int height) : video_(width, height) 
+    Engine::Engine(int width, int height, float clipping, float distance) : video_(width, height), sprite_clipping_(clipping), drawing_distance(distance)
     {}
 
     static uint32_t packRGBA(const Color& c) {
@@ -510,7 +512,6 @@ namespace fast {
     }
 
     static float splineValue(const std::vector<float>& v, float t, int i, float tens) {
-        // Same Catmull-Rom style interpolation as altitude()
         i = i % v.size();
         int im1 = i - 1;
         if (im1 < 0) im1 = static_cast<int>(v.size()) - 1;
@@ -571,8 +572,8 @@ namespace fast {
 
         // SKY TEXTURE
         std::vector<SkyTexture> skies;
-        skies.push_back(SkyTexture::load("textures/grass.ppm", 0.5f));
-        skies.push_back(SkyTexture::load("textures/rom_transparent.ppm", 1.0f));
+        skies.push_back(SkyTexture::load("textures/grass.ppm", 0.5f, 1.0f));
+        skies.push_back(SkyTexture::load("textures/rom_transparent.ppm", 1.0f, 1.0f));
 
        // DECORATION SPRITES
         SpriteZone spriteZone = SpriteZone::load("textures/sunfield.txt");
@@ -774,18 +775,22 @@ namespace fast {
 
             // SKY PAINTING
             for (size_t i = 0; i < skies.size(); i++) {
-                for (int y = horizon + delta_horizon; y >= 0; y--) {
-                    float y_prop = static_cast<float>(y) / static_cast<float>(video_.height_ - 1);
+                float skyBottom = horizon + delta_horizon;
+                float skyBottomBase = horizon_base + delta_horizon;
+                float normalized_under_horizon_base = 1 - (skyBottomBase / static_cast<float>(video_.height_));
+                float verticalShift = ((skyBottomBase - skyBottom) / static_cast<float>(video_.height_)) * skies[i].verticalShiftStrength_;
 
-                    float normalized_under_horizon = (1 - (static_cast<float>(horizon + delta_horizon) / static_cast<float>(video_.height_)));
+                for (int y = skyBottom; y >= 0; y--) {
+                    float y_prop = static_cast<float>(y) / static_cast<float>(video_.height_ - 1);
+                    float y_prop_shifted = y_prop + normalized_under_horizon_base + verticalShift;
                     
-                    int sky_idx_vertical = static_cast<int>(std::floor((y_prop + normalized_under_horizon) * static_cast<float>(skies[i].height_ - 1))); 
+                    int sky_idx_vertical = static_cast<int>(std::floor(y_prop_shifted * static_cast<float>(skies[i].height_ - 1))); 
                     sky_idx_vertical = std::clamp(sky_idx_vertical, 0, skies[i].height_ - 1);
 
                     for (int x = 0; x < video_.width_; x++) {
                         float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
 
-                        float x_prop_shifted = x_prop + (globalShiftParallax * skies[i].shiftStrength_);
+                        float x_prop_shifted = x_prop + (globalShiftParallax * skies[i].horizontalShiftStrength_);
                         if (x_prop_shifted < 0.0f) x_prop_shifted += 1.0f;
                         x_prop_shifted = std::fmod(x_prop_shifted, 1.0f);
                         
@@ -1106,6 +1111,515 @@ namespace fast {
 
             roadPos += speed * dt;
             roadPos = std::fmod(roadPos, altitudeStep * track.altitude.size());
+
+            for (int i = 0; i < video_.width_ * video_.height_; ++i)
+                uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
+
+            SDL_UpdateTexture(
+                video_.texture_,
+                nullptr,
+                uploadBuffer.data(),
+                video_.width_ * sizeof(uint32_t)
+            );
+
+            SDL_RenderClear(video_.renderer_);
+            SDL_RenderCopy(video_.renderer_, video_.texture_, nullptr, nullptr);
+            SDL_RenderPresent(video_.renderer_);
+            SDL_Delay(static_cast<Uint32>(dt * 100.0f));
+        }
+    }
+
+    void Engine::projection22() {
+        std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
+
+        Camera camera{512.0f, video_.height_ / 2.0f, video_.height_ / 2.0f, 500.0f}; 
+
+        Road road{1.5f, camera.distance};
+
+        road.setSpriteZone("textures/romzone.txt");
+
+        // CAMERA PROPERTIES
+        float cam_height = camera.height_base;
+        float horizon = camera.horizon_base;
+
+        // ACCUMULATOR
+        float roadPos = 0.0f;
+        float globalShiftParallax = 0.0f;
+
+        // SKY PARALLAX PARAMETERS
+        float parallaxStrength = 10.0f;
+        int delta_horizon = video_.height_ / 8; // to lower the draw zone
+
+        // SKY TEXTURE
+        std::vector<SkyTexture> skies;
+        skies.push_back(SkyTexture::load("textures/mountains_green_layered.ppm", 0.2f, 0.15f));
+        skies.push_back(SkyTexture::load("textures/mountains_green_4x3.ppm", 0.5f, 0.35f));
+
+        std::vector<std::vector<bool>> spritedL(road.sprite_zone.height_, std::vector<bool>(road.sprite_zone.width_, false));
+        std::vector<std::vector<bool>> spritedR(road.sprite_zone.height_, std::vector<bool>(road.sprite_zone.width_, false));
+
+        float dt = 0.016f;
+
+        // ENGINE & SDL LOOP
+        bool running = true;
+        while (running) {
+            SDL_Event event;
+
+            // KEYBOARD MAPPING
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    running = false;
+                }
+                else if (event.type == SDL_KEYDOWN) {
+                    if (event.key.keysym.sym == SDLK_PLUS || event.key.keysym.sym == SDLK_KP_PLUS)
+                        camera.speed_base += 100.0f;
+                    else if (event.key.keysym.sym == SDLK_MINUS || event.key.keysym.sym == SDLK_KP_MINUS)
+                        camera.speed_base -= 100.0f;
+                    else if (event.key.keysym.sym == SDLK_RIGHT)
+                        camera.lateral_pivot -= 0.05f;
+                    else if (event.key.keysym.sym == SDLK_LEFT)
+                        camera.lateral_pivot += 0.05f;
+                    else if (event.key.keysym.sym == SDLK_UP)
+                        camera.horizon_base += 5.f;
+                    else if (event.key.keysym.sym == SDLK_DOWN)
+                        camera.horizon_base -= 5.f;
+                    else if (event.key.keysym.sym == SDLK_z)
+                        camera.height_base += 10.0f;
+                    else if (event.key.keysym.sym == SDLK_s)
+                        camera.height_base -= 10.0f;
+                    else if (event.key.keysym.sym == SDLK_q)
+                        camera.lateral_pos -= 0.1f;
+                    else if (event.key.keysym.sym == SDLK_d)
+                        camera.lateral_pos += 0.1f;
+                    else if (event.key.keysym.sym == SDLK_t) {
+                        camera.horizon_base += 5.0f;
+                        camera.height_base -= 5.0f;
+                    }
+                    else if (event.key.keysym.sym == SDLK_g) {
+                        camera.horizon_base -= 5.0f;
+                        camera.height_base += 5.0f;
+                    }
+                    else if (event.key.keysym.sym == SDLK_y)
+                        camera.yawed = !(camera.yawed);
+                    else if (event.key.keysym.sym == SDLK_l)
+                        camera.latfol = !(camera.latfol);
+                    else if (event.key.keysym.sym == SDLK_h) {
+                        if (camera.heightfol) {
+                            camera.horizon_base = horizon;
+                            camera.height_base = cam_height;
+                            camera.heightfol = false;
+                        }
+                        else {
+                            camera.height_base = video_.height_ / 2;
+                            camera.horizon_base = camera.height_base;
+                            camera.heightfol = true;
+                        }
+                    }
+                    else if (event.key.keysym.sym == SDLK_c) {
+                        camera.lateral_pos = 0.5f;
+                        camera.lateral_pivot = 0.5f;
+                        camera.height_base = video_.height_ / 2.0f;
+                        camera.speed_base = 500.0f;
+                        camera.horizon_base = camera.height_base;
+                        camera.yawed = true;
+                        camera.latfol = true;
+                        camera.heightfol = true;
+                    }
+                }
+            }
+
+            // screen normalized camera lateral in road reference
+            float playerX = (camera.lateral_pos - 0.5f) * road.width;
+
+            // camera lateral position from track file
+            float cameraX = road.trackXAt(roadPos);
+
+            // camera rotation simulation
+            float maxCamDxDz = 0.60f; // clamp
+            float dxAhead = road.trackXAt(roadPos + camera.curve_lookahead) - road.trackXAt(roadPos);
+            float camDxDzTarget = camera.turn_strength * (dxAhead / camera.curve_lookahead);
+            if (camDxDzTarget > maxCamDxDz) camDxDzTarget = maxCamDxDz;
+            if (camDxDzTarget < -maxCamDxDz) camDxDzTarget = -maxCamDxDz;
+            float camDxDz = camDxDzTarget;
+
+            // compute final x position from the road lateral position, camera lateral position (player), with the rotation effect
+            // with the rotation effect that simulates the camera looking into the direction of the curve 
+            auto camSpaceX = [&](float z) -> float {
+                return (road.trackXAt(roadPos + z) - (camera.latfol ? cameraX : 0.0f)) - playerX - (camera.yawed ? (camDxDz * z) : 0.0f);
+            };
+
+            // SKY CLEAR
+            for (int y = 0; y < video_.height_; ++y) {
+                for (int x = 0; x < video_.width_; ++x) {
+                    video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
+                }
+            }
+           
+
+            int laststripIdx = -1;
+            
+            
+            // DERIVED UNDER CAMERA
+            int stripIdxPrime = (0 + roadPos) / road.altitude_step;
+            float stripPosPrime = std::fmod(0 + roadPos, road.altitude_step) / road.altitude_step;
+            float gradient = road.catmullRomSplineDerived(road.altitudes, stripPosPrime, stripIdxPrime, road.tension) / road.altitude_step;            
+            float tilt = gradient * camera.tilt_strength;
+            horizon = camera.horizon_base + (camera.heightfol ? (camera.horizon_base * (tilt)) : 0.0f);
+
+            // HEIGHT UNDER CAMERA
+            int stripIdx = (camera.distance * 0.75f + roadPos) / road.altitude_step;
+            float stripPos = std::fmod(camera.distance * 0.75f + roadPos, road.altitude_step) / road.altitude_step;
+            float cam_height_diff = road.catmullRomSpline(road.altitudes, stripPos, stripIdx, road.tension);
+            cam_height = camera.height_base + (camera.heightfol ? cam_height_diff : 0.0f);
+
+            // SPEED PERSPECTIVE ADAPTATION            
+            int stripIdxPrimeSpeed = (camera.distance + roadPos) / road.altitude_step;
+            float stripPosPrimeSpeed = std::fmod(camera.distance + roadPos, road.altitude_step) / road.altitude_step;
+            float gradient_screen = road.catmullRomSplineDerived(road.altitudes, stripPosPrimeSpeed, stripIdxPrimeSpeed, road.tension) / road.altitude_step;
+            float speed = camera.speed_base - (camera.heightfol ? (camera.speed_base * gradient_screen * 1.1f) : 0.0f);
+
+
+            globalShiftParallax += camDxDz * parallaxStrength;
+            globalShiftParallax = std::fmod(globalShiftParallax, 1.0f);
+
+            // SKY PAINTING
+            for (size_t i = 0; i < skies.size(); i++) {
+                float skyBottom = horizon + delta_horizon;
+                float skyBottomBase = camera.horizon_base + delta_horizon;
+                float normalized_under_horizon_base = 1 - (skyBottomBase / static_cast<float>(video_.height_));
+                float verticalShift = ((skyBottomBase - skyBottom) / static_cast<float>(video_.height_)) * skies[i].verticalShiftStrength_;
+
+                for (int y = skyBottom; y >= 0; y--) {
+                    float y_prop = static_cast<float>(y) / static_cast<float>(video_.height_ - 1);
+                    float y_prop_shifted = y_prop + normalized_under_horizon_base + verticalShift;
+                    
+                    int sky_idx_vertical = static_cast<int>(std::floor(y_prop_shifted * static_cast<float>(skies[i].height_ - 1))); 
+                    sky_idx_vertical = std::clamp(sky_idx_vertical, 0, skies[i].height_ - 1);
+
+                    for (int x = 0; x < video_.width_; x++) {
+                        float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
+
+                        float x_prop_shifted = x_prop + (globalShiftParallax * skies[i].horizontalShiftStrength_);
+                        if (x_prop_shifted < 0.0f) x_prop_shifted += 1.0f;
+                        x_prop_shifted = std::fmod(x_prop_shifted, 1.0f);
+                        
+                        int sky_idx_horizon = static_cast<int>(std::floor(x_prop_shifted * static_cast<float>(skies[i].width_ - 1))); 
+                        sky_idx_horizon = std::clamp(sky_idx_horizon, 0, skies[i].width_ - 1);
+
+                        Color painter = skies[i].get(sky_idx_horizon, sky_idx_vertical);
+                        if (painter != Colors::TRANSPARENT)
+                            video_.buffer_.pixels[x + y * video_.width_] = skies[i].get(sky_idx_horizon, sky_idx_vertical);
+                    }
+                }
+            }
+
+
+
+            float cameraOffset = std::fmod(roadPos, road.segment_length);
+            if (cameraOffset < 0.0f)
+                cameraOffset += road.segment_length;
+
+            // PROJECTION LOOP
+            for (int i = this->drawing_distance; i >= 1; --i) {
+                float zFar = (i * road.segment_length) - cameraOffset;
+                float zNear = ((i - 1) * road.segment_length) - cameraOffset;
+
+                if (zNear < 2.0f)
+                    zNear = 2.0f;
+                if (zFar <= zNear)
+                    continue;
+
+                // y_screen bounds computation            
+                int stripIdxZFar = (zFar + roadPos) / road.altitude_step;
+                float stripPosZFar = std::fmod(zFar + roadPos, road.altitude_step) / road.altitude_step;
+                int stripIdxZNear = (zNear + roadPos) / road.altitude_step;
+                float stripPosZNear = std::fmod(zNear + roadPos, road.altitude_step) / road.altitude_step;
+
+                float screenYFar = horizon + (camera.distance * (cam_height - road.catmullRomSpline(road.altitudes, stripPosZFar, stripIdxZFar, road.tension))) / zFar;
+                float screenYNear = horizon + (camera.distance * (cam_height - road.catmullRomSpline(road.altitudes, stripPosZNear, stripIdxZNear, road.tension))) / zNear;
+
+                int yTop = static_cast<int>(std::round(screenYFar));
+                int yBottom = static_cast<int>(std::round(screenYNear));
+
+                if (yTop > yBottom)
+                    continue;
+
+                if (yBottom < 0 || yTop >= video_.height_)
+                    continue;
+
+                int yStart = std::clamp(yTop, 0, video_.height_ - 1);
+                int yEnd = std::clamp(yBottom, 0, video_.height_ - 1);
+
+                if (yEnd < yStart)
+                     continue;
+
+                // trapezoidal apexes computation, they represent the road portion to draw in the interpollation part (one segment)
+                float xFar = camSpaceX(zFar);
+                float xNear = camSpaceX(zNear);
+
+                float centerFarProj = camera.lateral_pivot + (xFar * road.zref) / zFar;
+                float centerNearProj = camera.lateral_pivot + (xNear * road.zref) / zNear;
+
+                float roadWidthFarProj = (road.width * road.zref) / zFar;
+                float roadWidthNearProj = (road.width * road.zref) / zNear;
+
+                float roadLeftFarProj = centerFarProj - (roadWidthFarProj / 2.0f);
+                float roadRightFarProj = centerFarProj + (roadWidthFarProj / 2.0f);
+                float roadLeftNearProj = centerNearProj - (roadWidthNearProj / 2.0f);
+                float roadRightNearProj = centerNearProj + (roadWidthNearProj / 2.0f);
+
+                // SpriteZone flags reset
+                int stripIdx = static_cast<int>((zFar + roadPos) / road.strip_size);
+                if (stripIdx != laststripIdx) {
+                    laststripIdx = stripIdx;
+                    for (auto& row : spritedL) std::fill(row.begin(), row.end(), false);
+                    for (auto& row : spritedR) std::fill(row.begin(), row.end(), false);
+
+                }
+
+                Color grassColor = stripIdx % 2 == 0 ? Colors::JADE : Colors::JADE2;
+                
+                // INTERPOLATION
+                for (int y = yStart; y <= yEnd; y++) {
+                    // normalized vertical coordinate of the trapeze
+                    float y_prop = yEnd == yStart ? 0.5f : (static_cast<float>(y) - screenYFar) / (screenYNear - screenYFar);
+
+                    if (y_prop < 0.0f) y_prop = 0.0f;
+                    if (y_prop > 1.0f) y_prop = 1.0f;
+
+                    // road borders recalculated for each line in order to form the lateral sides of the trapeze
+                    float leftProj  = roadLeftFarProj + (roadLeftNearProj - roadLeftFarProj) * y_prop;
+                    float rightProj = roadRightFarProj + (roadRightNearProj - roadRightFarProj) * y_prop;
+
+                    float projWidth = rightProj - leftProj;
+                    if (projWidth <= EPSILON) {
+                        for (int x = 0; x < video_.width_; ++x)
+                            video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+                        continue;
+                    }
+
+                    if (rightProj <= 0.0f || leftProj >= 1.0f) {
+                        for (int x = 0; x < video_.width_; ++x)
+                            video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+                        continue;
+                    }
+
+                    int leftPix = static_cast<int>(std::round(leftProj * static_cast<float>(video_.width_ - 1)));
+                    int rightPix = static_cast<int>(std::round(rightProj * static_cast<float>(video_.width_ - 1)));
+
+                    if (leftPix > rightPix)
+                        std::swap(leftPix, rightPix);
+
+                    // road border in pixels
+                    int xStart = std::clamp(leftPix, 0, video_.width_ - 1);
+                    int xEnd = std::clamp(rightPix, 0, video_.width_ - 1);
+
+                    if (xEnd < xStart) {
+                        for (int x = 0; x < video_.width_; ++x)
+                            video_.buffer_.pixels[x + y * video_.width_] = grassColor;
+                        continue;
+                    }
+
+
+                    // normalized depth computation in one strip for texture vertical indexes
+                    float invZFar = 1.0f / zFar;
+                    float invZNear = 1.0f / zNear;
+                    float invZ = invZFar + (invZNear - invZFar) * y_prop;
+                    if (invZ <= EPSILON)
+                        continue;
+
+                    float zSample = 1.0f / invZ;
+                    float depthPos = std::fmod(zSample + roadPos, road.strip_size);
+                    if (depthPos < 0.0f)
+                        depthPos += road.strip_size;
+
+                    float depth_prop = depthPos / road.strip_size;
+
+
+                    // GRASS PAINTING
+                    int grass_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(road.grass_texture.height_));
+                    grass_idx_vertical = std::clamp(grass_idx_vertical, 0, road.grass_texture.height_ - 1);
+
+                    float grassWidthProj = (road.grass_width * road.zref) / zSample;
+
+                    for (int x = xStart - 1; x >= 0; x--) {
+                        // screen normalized x from left border of the road (x_prop = 0 <=> leftProj; x_prop = 1 <=> leftProj - 1)
+                        float x_prop = leftProj - (static_cast<float>(x) / static_cast<float>(video_.width_ - 1));
+
+                        int grass_idx_horizon = static_cast<int>(std::floor((std::fmod(x_prop, grassWidthProj) / grassWidthProj) * static_cast<float>(road.grass_texture.width_)));
+                        grass_idx_horizon = std::clamp(grass_idx_horizon, 0, road.grass_texture.width_ - 1);
+
+                        video_.buffer_.pixels[x + y * video_.width_] = road.grass_texture.get(grass_idx_horizon, grass_idx_vertical);
+                    }
+
+                    for (int x = xEnd + 1; x < video_.width_; x++) {
+                        // screen normalized x from right border of the road (x_prop = 0 <=> rightProj; x_prop = 1 <=> rightProj + 1) 
+                        float x_prop = (static_cast<float>(x) / static_cast<float>(video_.width_ - 1)) - rightProj;
+
+                        int grass_idx_horizon = static_cast<int>(std::floor((std::fmod(x_prop, grassWidthProj) / grassWidthProj) * static_cast<float>(road.grass_texture.width_)));
+                        grass_idx_horizon = std::clamp(grass_idx_horizon, 0, road.grass_texture.width_ - 1);
+
+                        video_.buffer_.pixels[x + y * video_.width_] = road.grass_texture.get(grass_idx_horizon, grass_idx_vertical);
+                    }
+
+                   
+                    // ROAD PAINTING
+                    int road_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(road.road_texture.height_));
+                    road_idx_vertical = std::clamp(road_idx_vertical, 0, road.road_texture.height_ - 1);
+
+                    // to find the right index, y coordinate here is a bad method because it is based on the screen, instead we use a normalized depth coordinate, based on Z (computation above)
+                    // int road_idx_vertical = static_cast<int>(((static_cast<float>(segmentIdx) + y_prop) / segmentCount) * static_cast<float>(pattern_height));
+                    // if (road_idx_vertical >= pattern_height) road_idx_vertical--;
+                    // if (road_idx_vertical < 0) road_idx_vertical = 0;
+
+                    for (int x = xStart; x <= xEnd; x++) {
+                        // normalized horizontal coordinate of the road
+                        float x_prop = ((static_cast<float>(x) / (video_.width_ - 1)) - leftProj) / projWidth;
+
+                        if (x_prop < 0.0f) x_prop = 0.0f;
+                        if (x_prop > 1.0f) x_prop = 1.0f;
+
+                        int road_idx_horizon = static_cast<int>(x_prop * static_cast<float>(road.road_texture.width_));
+                        road_idx_horizon = std::clamp(road_idx_horizon, 0, road.road_texture.width_ - 1);
+
+                        if (0 <= x && x < video_.width_ && 0 <= y && y < video_.height_)
+                            video_.buffer_.pixels[x + y * video_.width_] = road.road_texture.get(road_idx_horizon, road_idx_vertical);
+
+                    }
+                }
+
+                // SPRITE ZONE
+                if (i < this->drawing_distance / this->sprite_clipping_) {
+                    float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
+
+                    int stripIdxZMid = (zMid + roadPos) / road.altitude_step;
+                    float stripPosZMid = std::fmod(zMid + roadPos, road.altitude_step) / road.altitude_step;
+
+                    float screenYMid = horizon + (camera.distance * (cam_height - road.catmullRomSpline(road.altitudes, stripPosZMid, stripIdxZMid, road.tension))) / zMid;
+
+                    int segmentIdx = static_cast<int>(std::floor(std::fmod(zMid + roadPos, road.strip_size) / road.segment_length));
+
+                    int yMid = static_cast<int>(std::round(screenYMid));
+                    yMid = std::clamp(yMid, 0, video_.height_ + video_.height_ / 4);
+
+                    float xMid = camSpaceX(zMid);
+
+                    float spriteZoneLRProj = camera.lateral_pivot + ((xMid - (road.width * 0.5f) - road.sprite_zone.roadOffset_) * road.zref) / zMid; // right edge of left zone
+                    float spriteZoneLLProj = camera.lateral_pivot + ((xMid - (road.width * 0.5f) - road.sprite_zone.roadOffset_ - road.sprite_zone.widthScale_) * road.zref) / zMid; // left edge of left zone
+                    float spriteZoneRLProj = camera.lateral_pivot + ((xMid + (road.width * 0.5f) + road.sprite_zone.roadOffset_) * road.zref) / zMid; // left edge of right zone
+                    float spriteZoneRRProj = camera.lateral_pivot + ((xMid + (road.width * 0.5f) + road.sprite_zone.roadOffset_ + road.sprite_zone.widthScale_) * road.zref) / zMid; // right edge of right zone
+
+                    int spritezone_idx_vertical = segmentIdx;
+                    spritezone_idx_vertical = std::clamp(spritezone_idx_vertical, 0, road.sprite_zone.height_ - 1);
+
+                    // LEFT
+                    if (spriteZoneLLProj < spriteZoneLRProj && spriteZoneLRProj > 0.0f && spriteZoneLLProj < 1.0f) {
+                        int xLeftStart = std::clamp(static_cast<int>(std::round(spriteZoneLLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xLeftEnd = std::clamp(static_cast<int>(std::round(spriteZoneLRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+
+                        for (int x = xLeftStart; x <= xLeftEnd; ++x) {
+                            float x_prop = (static_cast<float>(x) / (video_.width_ - 1));
+                            float x_prop_born = (x_prop - spriteZoneLLProj) / (spriteZoneLRProj - spriteZoneLLProj);
+
+                            float cellwidth = (spriteZoneLRProj - spriteZoneLLProj) / static_cast<float>(road.sprite_zone.width_);
+
+                            int spritezone_idx_horizon = static_cast<int>(static_cast<float>(road.sprite_zone.width_) * x_prop_born);
+                            spritezone_idx_horizon = std::clamp(spritezone_idx_horizon, 0, road.sprite_zone.width_ - 1);
+
+                            int xcell = static_cast<int>(std::round((spriteZoneLLProj + (spritezone_idx_horizon * cellwidth) + (cellwidth / 2)) * static_cast<float>(video_.width_)));
+
+                            if (!spritedL[spritezone_idx_vertical][spritezone_idx_horizon] && road.sprite_zone.getFromLeft(spritezone_idx_horizon, spritezone_idx_vertical).active) {
+                                Sprite sprite = road.sprite_zone.getFromLeft(spritezone_idx_horizon, spritezone_idx_vertical).sprite_;
+
+                                int spriteWidth = static_cast<int>(static_cast<float>(video_.width_) * road.zref * sprite.scale_ / zMid);
+                                int spriteHeight = spriteWidth * sprite.texture_.height_ / sprite.texture_.width_;
+
+                                int top = yMid - spriteHeight;
+                                int left = xcell - (spriteWidth / 2);
+
+                                for (int y_spr = top; y_spr < yMid; y_spr++) {
+                                    float y_spr_normalized = static_cast<float>(y_spr - top) / static_cast<float>(spriteHeight);
+
+                                    int sprite_texture_idx_vertical = static_cast<int>(static_cast<float>(sprite.texture_.height_) * y_spr_normalized);
+                                    sprite_texture_idx_vertical = std::clamp(sprite_texture_idx_vertical, 0, sprite.texture_.height_ - 1);
+
+                                    if (0 <= y_spr && y_spr < video_.height_) {
+
+                                        for (int x_spr = left; x_spr < xcell + (spriteWidth / 2); x_spr++) {
+                                            if (0 <= x_spr && x_spr < video_.width_) {
+                                                float x_spr_normalized = static_cast<float>(x_spr - left) / static_cast<float>(spriteWidth);
+
+                                                int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
+                                                sprite_texture_idx_horizon = std::clamp(sprite_texture_idx_horizon, 0, sprite.texture_.width_ - 1);
+
+                                                Color painter = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                                if (painter != Colors::TRANSPARENT)
+                                                    video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                spritedL[spritezone_idx_vertical][spritezone_idx_horizon] = true;
+                            }
+                        }
+                    }
+                    // RIGHT
+                    if (spriteZoneRLProj < spriteZoneRRProj && spriteZoneRRProj > 0.0f && spriteZoneRLProj < 1.0f) {
+                        int xRightStart = std::clamp(static_cast<int>(std::round(spriteZoneRLProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+                        int xRightEnd = std::clamp(static_cast<int>(std::round(spriteZoneRRProj * static_cast<float>(video_.width_ - 1))), 0, video_.width_ - 1);
+
+                        for (int x = xRightStart; x <= xRightEnd; ++x) {
+                            float x_prop = (static_cast<float>(x) / (video_.width_ - 1));
+                            float x_prop_born = (x_prop - spriteZoneRLProj) / (spriteZoneRRProj - spriteZoneRLProj);
+
+                            float cellwidth = (spriteZoneRRProj - spriteZoneRLProj) / static_cast<float>(road.sprite_zone.width_);
+
+                            int spritezone_idx_horizon = static_cast<int>(static_cast<float>(road.sprite_zone.width_) * x_prop_born);
+                            spritezone_idx_horizon = std::clamp(spritezone_idx_horizon, 0, road.sprite_zone.width_ - 1);
+
+                            int xcell = static_cast<int>(std::round((spriteZoneRLProj + (spritezone_idx_horizon * cellwidth) + (cellwidth / 2)) * static_cast<float>(video_.width_)));
+
+                            if (!spritedR[spritezone_idx_vertical][spritezone_idx_horizon] && road.sprite_zone.get(spritezone_idx_horizon, spritezone_idx_vertical).active) {
+                                Sprite sprite = road.sprite_zone.get(spritezone_idx_horizon, spritezone_idx_vertical).sprite_;
+
+                                int spriteWidth = static_cast<int>(static_cast<float>(video_.width_) * road.zref * sprite.scale_ / zMid);
+                                int spriteHeight = spriteWidth * sprite.texture_.height_ / sprite.texture_.width_;
+
+                                int top = yMid - spriteHeight;
+                                int left = xcell - (spriteWidth / 2);
+
+                                for (int y_spr = top; y_spr < yMid; y_spr++) {
+                                    float y_spr_normalized = static_cast<float>(y_spr - top) / static_cast<float>(spriteHeight);
+
+                                    int sprite_texture_idx_vertical = static_cast<int>(static_cast<float>(sprite.texture_.height_) * y_spr_normalized);
+                                    sprite_texture_idx_vertical = std::clamp(sprite_texture_idx_vertical, 0, sprite.texture_.height_ - 1);
+
+                                    if (0 <= y_spr && y_spr < video_.height_) {
+                                        for (int x_spr = left; x_spr < xcell + (spriteWidth / 2); x_spr++) {
+                                            if (0 <= x_spr && x_spr < video_.width_) {
+                                                float x_spr_normalized = static_cast<float>(x_spr - left) / static_cast<float>(spriteWidth);
+
+                                                int sprite_texture_idx_horizon = static_cast<int>(static_cast<float>(sprite.texture_.width_) * x_spr_normalized);
+                                                sprite_texture_idx_horizon = std::clamp(sprite_texture_idx_horizon, 0, sprite.texture_.width_ - 1);
+
+                                                Color painter = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                                if (painter != Colors::TRANSPARENT)
+                                                    video_.buffer_.pixels[x_spr + y_spr * video_.width_] = sprite.texture_.get(sprite_texture_idx_horizon, sprite_texture_idx_vertical);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                spritedR[spritezone_idx_vertical][spritezone_idx_horizon] = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            roadPos += speed * dt;
+            roadPos = std::fmod(roadPos, road.altitude_step * road.altitudes.size());
 
             for (int i = 0; i < video_.width_ * video_.height_; ++i)
                 uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);

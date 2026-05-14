@@ -112,7 +112,7 @@ namespace fast {
         return texture;
     }
 
-    SkyTexture SkyTexture::load(const std::string& filename, float strength) {
+    SkyTexture SkyTexture::load(const std::string& filename, float strength, float verticalStrength) {
         auto texture = Texture::load(filename);
         
         SkyTexture sky;
@@ -120,7 +120,8 @@ namespace fast {
         sky.width_ = texture.width_;
         sky.pixels_ = texture.pixels_;
 
-        sky.shiftStrength_ = strength;
+        sky.horizontalShiftStrength_ = strength;
+        sky.verticalShiftStrength_ = verticalStrength;
 
         return sky;
     }
