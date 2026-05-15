@@ -26,8 +26,6 @@ namespace fast {
         // ce type de rendu permet de créer des collines et des virages sans tricher, grâce à la formule de projection
         void projection2();
 
-        // power2() n'est qu'une ébauche, il permet simplement de tracer des bandes de couleur pour simuler une profondeur
-        void power2(); // 0/20
 #endif
     };
 }

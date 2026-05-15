@@ -106,7 +106,7 @@ namespace fast {
             }
         }
         else {
-            throw std::runtime_error("/!\\ Unknown texture mode, must be PALETTE, RGB or P3");
+            throw std::runtime_error("/!\\ Texture error: Unknown texture mode, must be PALETTE, RGB or P3");
         }
 
         return texture;
@@ -128,7 +128,7 @@ namespace fast {
 
     Color Texture::get(int x, int y) const {
         if (x < 0 || x >= width_ || y < 0 || y >= height_)
-            throw std::out_of_range("/!\\ Texture coordinates out of range");
+            throw std::out_of_range("/!\\ Texture error: Coordinates out of range");
 
         return pixels_[y][x];
     }
@@ -197,7 +197,7 @@ namespace fast {
             }
         }
         else {
-            throw std::runtime_error("/!\\ Unknown SpriteZone mode, must be PALETTE");
+            throw std::runtime_error("/!\\ SpriteZone error: Unknown SpriteZone mode, must be PALETTE");
         }
 
         return spritezone;

@@ -409,8 +409,7 @@ static uint32_t packRGBA(const Color& c) {
 
         std::string line;
         while (std::getline(file, line)) {
-            // Format:
-            //   <altitude> <center offset>
+            // format: <altitude> <center offset>
             try {
                 size_t start = 0;
                 while (start < line.size() && std::isspace(static_cast<unsigned char>(line[start])))
