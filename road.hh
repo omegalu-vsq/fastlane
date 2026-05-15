@@ -13,10 +13,11 @@ namespace fast {
 
         float width; // screen scaled
         float grass_width; // screen scaled
-        float zref; // reference for cross multiplications for all screen scaled values
+        float& zref; // reference for cross multiplications for all screen scaled values
         
         // deformation effects
         float curve_strength = 200.0f;
+        float altitude_strength = 1.0f;
         float altitude_step = strip_size * 2.0f;
         float tension = 0.5f; // catmull rom parameter
 
@@ -29,12 +30,13 @@ namespace fast {
 
         Road() = delete;
 
-        Road(float width, float ref);
+        Road(float width, float& ref);
 
         float catmullRomSpline(std::vector<float>& v, float t, int i, float tens);
         float catmullRomSplineDerived(std::vector<float>& v, float t, int i, float tens);
 
         float trackXAt(float z);
+        float altitude(float z);
 
         void parseTrack(const std::string& filename);
 

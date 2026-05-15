@@ -8,7 +8,7 @@
 
 namespace fast {
 
-    Road::Road(float width, float ref) {
+    Road::Road(float width, float& ref) : zref(ref) {
         road_texture = Texture::load("textures/basicroad.txt");
         road_texture.flip_vertical();
         grass_texture = Texture::load("textures/grass.ppm");
@@ -19,7 +19,6 @@ namespace fast {
 
         this->width = width;
         this->grass_width = width;
-        this->zref = ref;
         this->segment_length = strip_size / sprite_zone.height_;
 
         parseTrack("roads/track.txt");
@@ -79,6 +78,18 @@ namespace fast {
         if (t < 0.0f) t += 1.0f;
 
         return curve_strength * catmullRomSpline(centers, t, idx, tension);
+    }
+
+    float Road::altitude(float z) {
+        if (altitudes.empty())
+            return 0.0f;
+
+        int idx = static_cast<int>(z / altitude_step);
+
+        float t = std::fmod(z, altitude_step) / altitude_step;
+        if (t < 0.0f) t += 1.0f;
+
+        return altitude_strength * catmullRomSpline(altitudes, t, idx, tension);
     }
 
     void Road::parseTrack(const std::string& filename) {

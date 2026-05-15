@@ -50,7 +50,7 @@ main-build: pre-build build
 build: $(OBJ_FILES)
 	$(CC) main.cpp -o fastlane $(OBJ_FILES) $(CXX_FLAGS) $(LDXX_FLAGS)
 
-%.o: %.cpp %.hh
+%.o: %.cpp $(H_FILES)
 	@$(call color,2)
 	@echo "[$@] $(CXX_FLAGS)"
 	@$(call default_color)
@@ -71,4 +71,3 @@ build: $(OBJ_FILES)
 
 clean:
 	rm -f $(OBJ_FILES) fastlane
-

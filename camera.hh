@@ -20,7 +20,8 @@ namespace fast {
         float curve_lookahead; // arbitrary value, depends on the rendering you want
 
         // for altitude effects
-        float tilt_strength = 2.8f;
+        float tilt_strength = 3.5f;
+        float tilt_smoothing = 8.0f;
 
         Camera() = delete;
 
