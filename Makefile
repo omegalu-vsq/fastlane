@@ -1,7 +1,12 @@
 CC = g++
 
-CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp camera.cpp road.cpp
+CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp road.cpp
 H_FILES  = video.hh point.hh vector.hh engine.hh texture.hh camera.hh road.hh
+
+ifeq ($(LEGACY),1)
+CPP_FILES += engineLegacy.cpp
+CXX_FLAGS += -DLEGACY
+endif
 
 OBJ_FILES = $(CPP_FILES:.cpp=.o)
 
@@ -67,7 +72,10 @@ build: $(OBJ_FILES)
 	fi ;\
 	exit $$sta
 
-.PHONY: all clean pre-build post-build main-build build
+.PHONY: all legacy clean pre-build post-build main-build build
+
+legacy:
+	@$(MAKE) LEGACY=1
 
 clean:
-	rm -f $(OBJ_FILES) fastlane
+	rm -f $(OBJ_FILES) engineLegacy.o fastlane

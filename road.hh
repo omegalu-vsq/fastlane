@@ -37,6 +37,7 @@ namespace fast {
 
         float trackXAt(float z);
         float altitude(float z);
+        float altitudeDerived(float z);
 
         void parseTrack(const std::string& filename);
 

@@ -92,6 +92,18 @@ namespace fast {
         return altitude_strength * catmullRomSpline(altitudes, t, idx, tension);
     }
 
+    float Road::altitudeDerived(float z) {
+        if (altitudes.empty())
+            return 0.0f;
+
+        int idx = static_cast<int>(z / altitude_step);
+
+        float t = std::fmod(z, altitude_step) / altitude_step;
+        if (t < 0.0f) t += 1.0f;
+
+        return (altitude_strength * catmullRomSplineDerived(altitudes, t, idx, tension)) / altitude_step;
+    }
+
     void Road::parseTrack(const std::string& filename) {
         altitudes.clear();
         centers.clear();
@@ -103,22 +115,10 @@ namespace fast {
             return;
         }
 
-        enum class TrackMode { Offset, Curvature };
-        TrackMode mode = TrackMode::Offset;
-
         std::string line;
-        float curvatureAccum = 0.0f;
         while (std::getline(file, line)) {
             // Format:
-            //   mode offset
-            //   <altitude> <centerOffset>
-            //
-            // or
-            //   mode curvature
-            //   <altitude> <curvature>
-            //
-            // centerOffset is a normalized horizontal offset (e.g. -0.25..0.25)
-            // curvature is an incremental steering value integrated over the track
+            //   <altitude> <center offset>
             try {
                 size_t start = 0;
                 while (start < line.size() && std::isspace(static_cast<unsigned char>(line[start])))
@@ -127,14 +127,6 @@ namespace fast {
                     continue;
                 if (line[start] == '#')
                     continue;
-
-                if (line.compare(start, 4, "mode") == 0) {
-                    if (line.find("curvature", start) != std::string::npos)
-                        mode = TrackMode::Curvature;
-                    else if (line.find("offset", start) != std::string::npos)
-                        mode = TrackMode::Offset;
-                    continue;
-                }
 
                 size_t pos = start;
                 float a = std::stof(line.substr(pos), &pos);
@@ -148,12 +140,7 @@ namespace fast {
                 if (pos < line.size())
                     second = std::stof(line.substr(pos));
 
-                if (mode == TrackMode::Offset) {
-                    centers.push_back(second);
-                } else {
-                    curvatureAccum += second;
-                    centers.push_back(curvatureAccum);
-                }
+                centers.push_back(second);
             } catch (const std::exception&) {
             }
         }
