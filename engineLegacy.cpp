@@ -479,19 +479,6 @@ static uint32_t packRGBA(const Color& c) {
 
     }
 
-    static float splineValue(const std::vector<float>& v, float t, int i, float tens) {
-        i = i % v.size();
-        int im1 = i - 1;
-        if (im1 < 0) im1 = static_cast<int>(v.size()) - 1;
-        int ip1 = (i + 1) % static_cast<int>(v.size());
-        int ip2 = (i + 2) % static_cast<int>(v.size());
-
-        return (v[i]
-            + (-tens * v[im1] + tens * v[ip1]) * t
-            + (2 * tens * v[im1] + (tens - 3) * v[i] + (3 - 2 * tens) * v[ip1] - tens * v[ip2]) * std::pow(t, 2)
-            + (-tens * v[im1] + (2 - tens) * v[i] + (tens - 2) * v[ip1] + tens * v[ip2]) * std::pow(t, 3));
-    }
-
     void Engine::projection2() {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
@@ -641,7 +628,7 @@ static uint32_t packRGBA(const Color& c) {
                 int idx = static_cast<int>(worldZ / altitudeStep);
                 float t = std::fmod(worldZ, altitudeStep) / altitudeStep;
                 if (t < 0.0f) t += 1.0f;
-                return curveStrength * splineValue(track.centerOffset, t, idx, tension);
+                return curveStrength * altitude(track.centerOffset, t, idx, tension);
             };
 
             // screen normalized camera lateral in road reference
@@ -656,7 +643,7 @@ static uint32_t packRGBA(const Color& c) {
             float dxAhead = trackXAt(roadPos + lookAheadZ) - trackXAt(roadPos);
             float camDxDz = cameraTurnStrength * (dxAhead / lookAheadZ);
 
-            // compute final x position from the road lateral position, camera lateral position (player), with the rotation effect
+            // compute final x position from the road lateral position, camera lateral position (player),
             // with the rotation effect that simulates the camera looking into the direction of the curve 
             auto camSpaceX = [&](float z) -> float {
                 return (trackXAt(roadPos + z) - (latfol ? cameraX : 0.0f)) - playerX - (yawed ? (camDxDz * z) : 0.0f);
@@ -1090,66 +1077,5 @@ static uint32_t packRGBA(const Color& c) {
         }
     }
 
-void Engine::power2() {
-        for (int y = 0; y < video_.height_; ++y) {
-            for (int x = 0; x < video_.width_; ++x)
-                    video_.buffer_.pixels[x + y * video_.width_] = Colors::DARK_BLUE;
-        }
-
-        std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
-
-        int offset = 0;
-
-        bool running = true;
-        while (running) {
-            SDL_Event event;
-            
-            while (SDL_PollEvent(&event)) {
-                if (event.type == SDL_QUIT) {
-                    running = false;
-                }
-            }
-
-            int y = video_.height_ / 2;
-            int strip_size = 2;
-
-            while (y < video_.height_) {
-                int stripi = strip_size;
-
-                while (y < video_.height_ && stripi > 0) {
-                    for (int x = 0; x < video_.width_; ++x) {
-                        if (stripi < strip_size / 2)
-                            video_.buffer_.pixels[x + ((y + offset) % (video_.height_ / 2)) * video_.width_] = Colors::JADE;
-                        else
-                            video_.buffer_.pixels[x + ((y + offset) % (video_.height_ / 2)) * video_.width_] = Colors::JADE2;
-                    }
-
-                    y++;
-                    stripi--;
-                }
-
-                strip_size *= 2;
-            }
-
-            offset++;
-            offset %= video_.height_ / 2;
-
-            for (int i = 0; i < video_.width_ * video_.height_; ++i)
-                uploadBuffer[i] = packRGBA(video_.buffer_.pixels[i]);
-
-            SDL_UpdateTexture(
-                video_.texture_,
-                nullptr,
-                uploadBuffer.data(),
-                video_.width_ * sizeof(uint32_t)
-            );
-
-            SDL_RenderClear(video_.renderer_);
-            SDL_RenderCopy(video_.renderer_, video_.texture_, nullptr, nullptr);
-            SDL_RenderPresent(video_.renderer_);
-            SDL_Delay(16);
-        }
-    }
-}
 
 #endif

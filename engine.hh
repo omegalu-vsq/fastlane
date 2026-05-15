@@ -13,8 +13,6 @@ namespace fast {
         // le plus moderne des moteurs, projection22() est basé sur projection2() en rajoutant principalement les objets Road et Camera
         void projection22();
 
-        // Legacy renderers live in engineLegacy.cpp and are disabled by default.
-        // Compile them with `make legacy` or `make LEGACY=1`.
 #ifdef LEGACY
         // basic() est un moteur de type scanline avec très peu de fonctionnalités
         void basic();

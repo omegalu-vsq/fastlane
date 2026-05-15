@@ -157,7 +157,7 @@ namespace fast {
             float camDxDzTarget = camera.turn_strength * (dxAhead / camera.curve_lookahead);
             float camDxDz = camDxDzTarget;
 
-            // compute final x position from the road lateral position, camera lateral position (player), with the rotation effect
+            // compute final x position from the road lateral position, camera lateral position (player),
             // with the rotation effect that simulates the camera looking into the direction of the curve 
             auto camSpaceX = [&](float z) -> float {
                 return (road.trackXAt(roadPos + z) - (camera.latfol ? cameraX : 0.0f)) - playerX - (camera.yawed ? (camDxDz * z) : 0.0f);
