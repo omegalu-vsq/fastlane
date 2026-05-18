@@ -28,8 +28,11 @@ namespace fast {
         std::vector<uint32_t> uploadBuffer(video_.width_ * video_.height_);
 
         Camera camera{512.0f, video_.height_ / 2.0f, video_.height_ / 2.0f, 500.0f}; 
+        camera.yawed = false;
+        camera.latfol = false;
 
         Road road{2.0f, camera.distance};
+        road.altitude_strength = 0.0f;
 
         // CAMERA PROPERTIES
         float cam_height = camera.height_base;
@@ -92,10 +95,6 @@ namespace fast {
                         camera.tilt_strength += 0.1f;
                     else if (event.key.keysym.sym == SDLK_l)
                         camera.tilt_strength -= 0.1f;
-                    else if (event.key.keysym.sym == SDLK_u)
-                        camera.turn_strength += 0.05f;
-                    else if (event.key.keysym.sym == SDLK_j)
-                        camera.turn_strength -= 0.05f;
                     else if (event.key.keysym.sym == SDLK_y)
                         road.curve_strength += 20.0f;
                     else if (event.key.keysym.sym == SDLK_h)
@@ -104,17 +103,9 @@ namespace fast {
                         road.altitude_strength += 0.5f;
                     else if (event.key.keysym.sym == SDLK_n)
                         road.altitude_strength -= 0.5f;
-                    else if (event.key.keysym.sym == SDLK_t) {
-                        camera.horizon_base += 5.0f;
-                        camera.height_base -= 5.0f;
-                    }
-                    else if (event.key.keysym.sym == SDLK_g) {
-                        camera.horizon_base -= 5.0f;
-                        camera.height_base += 5.0f;
-                    }
-                    else if (event.key.keysym.sym == SDLK_r)
+                    else if (event.key.keysym.sym == SDLK_t)
                         camera.yawed = !(camera.yawed);
-                    else if (event.key.keysym.sym == SDLK_f)
+                    else if (event.key.keysym.sym == SDLK_r)
                         camera.latfol = !(camera.latfol);
                     else if (event.key.keysym.sym == SDLK_h) {
                         if (camera.heightfol) {
@@ -134,14 +125,14 @@ namespace fast {
                         camera.height_base = video_.height_ / 2.0f;
                         camera.speed_base = 500.0f;
                         camera.horizon_base = camera.height_base;
-                        camera.yawed = true;
-                        camera.latfol = true;
+                        //camera.yawed = true;
+                        //camera.latfol = true;
                         camera.heightfol = true;
                         camera.distance = 512.0f;
                         camera.tilt_strength = 3.5f;
                         camera.turn_strength = 0.85f;
                         road.curve_strength = 200.0f;
-                        road.altitude_strength = 1.0f;
+                        //road.altitude_strength = 1.0f;
                     }
                 }
             }
