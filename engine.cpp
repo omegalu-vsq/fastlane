@@ -195,6 +195,7 @@ namespace fast {
 
 
             // SKY PAINTING
+            /*
             for (size_t i = 0; i < skies.size(); i++) {
                 float skyBottom = horizon + delta_horizon;
                 float skyBottomBase = camera.horizon_base + delta_horizon;
@@ -228,7 +229,7 @@ namespace fast {
                     }
                 }
             }
-
+            */
 
 
             float cameraOffset = std::fmod(roadPos, road.segment_length);
