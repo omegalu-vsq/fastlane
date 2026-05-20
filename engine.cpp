@@ -116,7 +116,7 @@ namespace fast {
                         camera.yawed = !(camera.yawed);
                     else if (event.key.keysym.sym == SDLK_f)
                         camera.latfol = !(camera.latfol);
-                    else if (event.key.keysym.sym == SDLK_h) {
+                    else if (event.key.keysym.sym == SDLK_v) {
                         if (camera.heightfol) {
                             camera.horizon_base = horizon;
                             camera.height_base = cam_height;
