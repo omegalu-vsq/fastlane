@@ -1,11 +1,12 @@
 #pragma once
 
-#include "texture.hh"
+#include <string>
+#include <vector>
 
 namespace fast {
     class Road {
         public:
-        SpriteZone sprite_zone;
+        //SpriteZone sprite_zone;
 
         // road segmentation in world unit z (depth)
         float strip_size = 512.0f;
@@ -24,8 +25,8 @@ namespace fast {
         std::vector<float> altitudes; // based on world unit y
         std::vector<float> centers; // normalized screen space offset
 
-        Texture road_texture;
-        Texture grass_texture;
+        //Texture road_texture;
+        //Texture grass_texture;
 
 
         Road() = delete;

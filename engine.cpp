@@ -1,7 +1,6 @@
 #include "camera.hh"
 #include "engine.hh"
 #include "road.hh"
-#include "texture.hh"
 
 #include <algorithm>
 #include <cmath>
@@ -46,6 +45,7 @@ namespace fast {
         int delta_horizon = video_.height_ / 8; // to lower the draw zone
 
         // SKY TEXTURE
+#if 0
         std::vector<SkyTexture> skies;
         skies.push_back(SkyTexture::load("textures/clouds.ppm", 0.1f, 0.05f));
         skies.push_back(SkyTexture::load("textures/mountains_back.ppm", 0.2f, 0.15f));
@@ -53,6 +53,7 @@ namespace fast {
 
         std::vector<std::vector<bool>> spritedL(road.sprite_zone.height_, std::vector<bool>(road.sprite_zone.width_, false));
         std::vector<std::vector<bool>> spritedR(road.sprite_zone.height_, std::vector<bool>(road.sprite_zone.width_, false));
+#endif
 
         float dt = 0.016f;
 
@@ -275,8 +276,10 @@ namespace fast {
                 int stripIdx = static_cast<int>((zFar + roadPos) / road.strip_size);
                 if (stripIdx != laststripIdx) {
                     laststripIdx = stripIdx;
+#if 0
                     for (auto& row : spritedL) std::fill(row.begin(), row.end(), false);
                     for (auto& row : spritedR) std::fill(row.begin(), row.end(), false);
+#endif
 
                 }
 
@@ -311,16 +314,18 @@ namespace fast {
                     float depth_prop = depthPos / road.strip_size;
 
                     // GRASS PAINTING
-                    int grass_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(road.grass_texture.height_));
-                    grass_idx_vertical = std::clamp(grass_idx_vertical, 0, road.grass_texture.height_ - 1);
-
-                    float grassWidthProj = (road.grass_width * road.zref) / zSample;
+                    bool alternateBand = static_cast<int>((zSample + roadPos) / (road.strip_size * 0.5f)) % 2 == 0;
+                    Color grassColor = alternateBand ? Colors::JADE : Colors::JADE2;
+                    Color roadColor = alternateBand ? Colors::BLACK : Colors::DARK_GRAY;
 
                     auto paintGrass = [&](int x, float x_prop) {
+#if 0
                         int grass_idx_horizon = static_cast<int>(std::floor((std::fmod(x_prop, grassWidthProj) / grassWidthProj) * static_cast<float>(road.grass_texture.width_)));
                         grass_idx_horizon = std::clamp(grass_idx_horizon, 0, road.grass_texture.width_ - 1);
 
                         video_.buffer_.pixels[x + y * video_.width_] = road.grass_texture.get(grass_idx_horizon, grass_idx_vertical);
+#endif
+                        video_.buffer_.pixels[x + y * video_.width_] = grassColor;
                     };
 
                     if (rightProj <= 0.0f) {
@@ -370,8 +375,10 @@ namespace fast {
 
                    
                     // ROAD PAINTING
+#if 0
                     int road_idx_vertical = static_cast<int>(depth_prop * static_cast<float>(road.road_texture.height_));
                     road_idx_vertical = std::clamp(road_idx_vertical, 0, road.road_texture.height_ - 1);
+#endif
 
                     for (int x = xStart; x <= xEnd; x++) {
                         // normalized horizontal coordinate of the road
@@ -380,16 +387,22 @@ namespace fast {
                         if (x_prop < 0.0f) x_prop = 0.0f;
                         if (x_prop > 1.0f) x_prop = 1.0f;
 
+#if 0
                         int road_idx_horizon = static_cast<int>(x_prop * static_cast<float>(road.road_texture.width_));
                         road_idx_horizon = std::clamp(road_idx_horizon, 0, road.road_texture.width_ - 1);
 
                         if (0 <= x && x < video_.width_ && 0 <= y && y < video_.height_)
                             video_.buffer_.pixels[x + y * video_.width_] = road.road_texture.get(road_idx_horizon, road_idx_vertical);
+#endif
+
+                        if (0 <= x && x < video_.width_ && 0 <= y && y < video_.height_)
+                            video_.buffer_.pixels[x + y * video_.width_] = roadColor;
 
                     }
                 }
 
                 // SPRITE ZONE
+#if 0
                 if (i < this->drawing_distance / this->sprite_clipping_) {
                     float zMid = 2 / ((1.0f / zFar) + (1.0f / zNear));
 
@@ -514,6 +527,7 @@ namespace fast {
                         }
                     }
                 }
+#endif
             }
 
             roadPos += speed * dt;

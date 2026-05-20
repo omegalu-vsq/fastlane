@@ -9,6 +9,7 @@
 namespace fast {
 
     Road::Road(float width, float& ref) : zref(ref) {
+        /*
         road_texture = Texture::load("textures/basicroad.txt");
         road_texture.flip_vertical();
         grass_texture = Texture::load("textures/grass.ppm");
@@ -16,30 +17,37 @@ namespace fast {
         sprite_zone = SpriteZone::load("textures/sunfield.txt");
         sprite_zone.setRoadOffset(0.15f);
         sprite_zone.setWidthScale(2.0f);
+        */
 
         this->width = width;
         this->grass_width = width;
-        this->segment_length = strip_size / sprite_zone.height_;
+        this->segment_length = strip_size / 16.0f;
 
         parseTrack("roads/track.txt");
     };
 
     void Road::setRoadTexture(const std::string& filename) {
+#if 0
         road_texture = Texture::load(filename);
         road_texture.flip_vertical();
+#endif
     }
 
     void Road::setGrassTexture(const std::string& filename) {
+#if 0
         grass_texture = Texture::load(filename);
+#endif
     }
 
     void Road::setSpriteZone(const std::string& filename) {
+#if 0
         float roadOffset = sprite_zone.roadOffset_;
         float widthScale = sprite_zone.widthScale_;
         sprite_zone = SpriteZone::load(filename);
         sprite_zone.setRoadOffset(roadOffset);
         sprite_zone.setWidthScale(widthScale);
         segment_length = strip_size / sprite_zone.height_;
+#endif
     }
 
     float Road::catmullRomSpline(std::vector<float>& v, float t, int i, float tens) {

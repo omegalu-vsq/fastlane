@@ -1,6 +1,6 @@
 CC = g++
 
-CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp texture.cpp road.cpp
+CPP_FILES = video.cpp point.cpp vector.cpp engine.cpp road.cpp
 H_FILES  = video.hh point.hh vector.hh engine.hh texture.hh camera.hh road.hh
 
 ifeq ($(LEGACY),1)
