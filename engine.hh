@@ -18,11 +18,11 @@ namespace fast {
         void basic();
 
         // scanline() est un moteur de type scanline, c'est à dire qu'il parcourt les lignes de l'écran puis trace le monde.
-        // il est très performant mais n'est capable de tracer que des lignes droites, il n'y a donc pas d'altitude ni de courbes.
+        // il est très performant mais n'est capable de tracer que des lignes droites, il n'y a donc ni altitude ni courbes.
         void scanline();
 
         // projection2() fonctionne, à l'inverse des 2 moteurs précédents, en projetant le monde sur l'écran.
-        // c'est à dire qu'au lieu de parcourir l'écran et de tracer le monde, on parcourt le monde, puis on le trace sur l'écran en interpollant.
+        // c'est à dire qu'au lieu de parcourir l'écran et de tracer le monde, on parcourt le monde, puis on le trace sur l'écran en interpolant.
         // ce type de rendu permet de créer des collines et des virages sans tricher, grâce à la formule de projection
         void projection2();
 
