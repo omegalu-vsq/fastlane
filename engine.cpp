@@ -215,11 +215,11 @@ namespace fast {
                     for (int x = 0; x < video_.width_; x++) {
                         float x_prop = static_cast<float>(x) / static_cast<float>(video_.width_ - 1);
 
-                        float x_prop_shifted = x_prop + (camDxDz * 1000.0f * skies[i].horizontalShiftStrength_);
-                        if (x_prop_shifted < 0.0f) x_prop_shifted += 1.0f;
-                        x_prop_shifted = std::fmod(x_prop_shifted, 1.0f);
+                        float x_prop_shifted = std::fmod(x_prop + (camDxDz * 1000.0f * skies[i].horizontalShiftStrength_), 1.0f);
+                        if (x_prop_shifted < 0.0f)
+                            x_prop_shifted += 1.0f;
                         
-                        int sky_idx_horizon = static_cast<int>(std::floor(x_prop_shifted * static_cast<float>(skies[i].width_ - 1))); 
+                        int sky_idx_horizon = static_cast<int>(std::floor(x_prop_shifted * static_cast<float>(skies[i].width_))); 
                         sky_idx_horizon = std::clamp(sky_idx_horizon, 0, skies[i].width_ - 1);
 
                         Color painter = skies[i].get(sky_idx_horizon, sky_idx_vertical);
